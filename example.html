@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<!--
+  What the WordPress plugin (v4/) adds to the Classic Editor, outside WordPress: TinyMCE 4.9.11 -
+  the version WordPress bundles - with v4/editor_plugin.js loaded the way WordPress's
+  mce_external_plugins filter loads it.
+
+  In WordPress itself you only install and activate the plugin; the window.eqneditor* settings
+  below go in an admin_head hook, e.g. in your theme's functions.php:
+
+    add_action( 'admin_head', function () {
+        echo "<script>window.eqneditorServer = '{{EQN_SERVER}}';"
+            . "window.eqneditorLicence = '{{FXTEXPRO_KEY}}';</script>";
+    } );
+
+  Replace the licence with your own fxTeX Pro licence key (fx_pk_...), from editor.codecogs.com.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CodeCogs Equation Editor - WordPress example</title>
+
+    <script>
+        window.eqneditorServer = '{{EQN_SERVER}}';
+        window.eqneditorLicence = '{{FXTEXPRO_KEY}}';
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tinymce/4.9.11/tinymce.min.js"></script>
+
+    <style>
+        body { font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+               max-width: 900px; margin: 0 auto; padding: 24px; color: #1c2530; }
+        p.hint { color: #52606d; font-size: 14px; }
+    </style>
+
+    <script>
+        tinymce.init({
+            selector: '#content',
+            menubar: false,
+            toolbar: 'undo redo | bold italic | eqneditor',
+            height: 420,
+            external_plugins: { eqneditor: new URL( 'v4/editor_plugin.js', location.href ).href }
+        });
+    </script>
+</head>
+<body>
+    <h1>CodeCogs Equation Editor in WordPress</h1>
+    <p class="hint">
+        Press the <strong>fx</strong> button on the toolbar to insert an equation, or
+        double-click the equation below to edit it.
+    </p>
+
+    <textarea id="content">
+        <p>Sample text and an equation:</p>
+        <p><img src="https://latex.codecogs.com/svg.image?\sum_{i=0}^{n}a_i^2&plus;b"
+                alt="\sum_{i=0}^{n}a_i^2+b"></p>
+        <p>Double-click the equation above to edit it.</p>
+    </textarea>
+</body>
+</html>

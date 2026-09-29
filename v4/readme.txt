@@ -4,7 +4,7 @@ Donate link: https://www.codecogs.com/
 Tags: latex, equation, math, TinyMCE, classic editor
 Requires at least: 5.0
 Tested up to: 7.1
-Stable tag: 4.0
+Stable tag: 4.1
 License: GPLv2 or later
 
 Adds the CodeCogs WYSIWYG LaTeX equation editor to the WordPress Classic Editor's TinyMCE toolbar.
@@ -45,6 +45,12 @@ the directory of the stable readme.txt, so in this case, `/tags/4.3/screenshot-1
 2. This is the second screen shot
 
 == Changelog ==
+
+= 4.1 =
+* The dialog is now maths-view only, like CodeCogs' other editor plugins: LaTeX markup and
+  Inline are toggles in a bottom bar, and "Insert as" chooses MathML or an SVG image.
+* MathML equations and the image's referrerpolicy now survive saving for Authors and
+  Contributors (added to WordPress's allowed post HTML).
 
 = 4.0 =
 * Rewritten against the current EqEditor API (editor.codecogs.com) and WordPress 7.1/TinyMCE

@@ -1,9 +1,14 @@
 # WordPress EqnEditor plugin
 
 Adds the CodeCogs equation editor to the WordPress Classic Editor's TinyMCE toolbar - an "fx"
-button that opens a dialog embedding the shared EqEditor UI (maths view by default, with a
-toggle to LaTeX markup) every adapter in `eqneditor-v5-plugins` uses. Double-clicking an
-existing equation image reopens the dialog with its LaTeX decoded back out of the image's src.
+button that opens the same dialog as `tinymce/v4/plugins/eqneditor`: toolbar and maths view on
+top, then a bottom bar with the *Inline* and *LaTeX markup* toggles on the left and *Insert as*
+(MathML or SVG image) on the right, above the dialog's Cancel/Ok. Double-clicking an existing
+equation (image or MathML) reopens the dialog with its LaTeX.
+
+`index.php` also hooks `wp_kses_allowed_html` so MathML (and the image's
+`referrerpolicy="origin"`) survive saving for users without `unfiltered_html`; without it
+WordPress strips `<math>` from Authors' and Contributors' posts.
 
 `index.php` and `editor_plugin.js` were rewritten from scratch against WordPress 7.1 (current
 latest, confirmed via `docker pull wordpress:latest`), which still bundles TinyMCE 4.9.11 -
@@ -13,7 +18,15 @@ in structure - see that adapter's README for anything not specific to WordPress)
 version (see CHANGES below) loaded `eqneditor.api.min.js`/`eqneditor_1.css` from paths that don't
 exist any more and had no maths view at all.
 
-## Verified against a real WordPress 7.1 install
+## Verification
+
+The 4.1 redesign (dialog layout, MathML insert, kses filter) was checked in a TinyMCE 4
+harness loading `editor_plugin.js` against the local dev server - toolbar icons match the
+reference editor exactly, SVG and MathML inserts and double-click editing work - and the kses
+filter with the PHP CLI and stubbed WordPress functions. It has not yet been clicked through
+on a live WordPress install; the notes below are from the 4.0 rewrite.
+
+### Verified against a real WordPress 7.1 install (4.0)
 
 Via `docker-compose.yml` in this folder (`docker compose up`, then `http://localhost:8081`) plus
 the official Classic Editor plugin (WordPress 7.1 defaults to the block editor, which has no
@@ -37,13 +50,15 @@ here since it affects every adapter in this repo that points at the default host
 WordPress.
 
 For local development, point this plugin at a local `eqneditor-v5-www` dev server instead of
-production by setting these globals before TinyMCE initialises (e.g. from an `admin_head` hook
+production by setting these globals before TinyMCE initialises (`window.eqneditorServer`,
+`eqneditorRenderUrl` and `eqneditorLicence` are also read) (e.g. from an `admin_head` hook
 in a must-use plugin - see this exact pattern used for verification, removed before committing):
 
 ```php
 add_action( 'admin_head', function () {
 	echo '<script>window.eqneditorScriptUrl="http://localhost:8010/eqneditor.api.min.js";'
-		. 'window.eqneditorCssUrl="http://localhost:8010/eqneditor.css";</script>';
+		. 'window.eqneditorCssUrl="http://localhost:8010/eqneditor.css";'
+		. 'window.eqneditorMathmlCssUrl="http://localhost:8010/fxtex.css";</script>';
 } );
 ```
 

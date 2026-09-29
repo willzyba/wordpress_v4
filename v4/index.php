@@ -4,7 +4,7 @@ Plugin Name: CodeCogs Equation Editor
 Plugin URI: https://www.codecogs.com/
 Description: Adds the CodeCogs equation editor to the WordPress Classic Editor's TinyMCE toolbar.
 Author: CodeCogs
-Version: 4.0
+Version: 4.1
 Author URI: https://www.codecogs.com/
 */
 
@@ -30,3 +30,40 @@ function eqneditor_register_tinymce_plugin() {
 }
 
 add_action( 'init', 'eqneditor_register_tinymce_plugin' );
+
+// "Insert as MathML" puts <math> into the post, and the image insert sets referrerpolicy so
+// latex.codecogs.com can see which site is asking. Users without unfiltered_html (Authors,
+// Contributors) have their content passed through kses on save, which drops any tag or
+// attribute it doesn't know - so both need adding to what it allows in post content.
+function eqneditor_allow_mathml( $tags, $context ) {
+	if ( 'post' !== $context ) {
+		return $tags;
+	}
+
+	$attributes = array_fill_keys( array(
+		'class', 'id', 'title', 'dir', 'xmlns', 'display', 'alttext', 'role', 'aria-label', 'aria-hidden', 'data-*',
+		'mathvariant', 'mathcolor', 'mathbackground', 'mathsize', 'displaystyle', 'scriptlevel',
+		'accent', 'accentunder', 'fence', 'form', 'largeop', 'lspace', 'rspace', 'maxsize', 'minsize',
+		'movablelimits', 'separator', 'stretchy', 'symmetric', 'linethickness', 'numalign', 'denomalign',
+		'width', 'height', 'depth', 'voffset', 'notation', 'encoding', 'definitionurl', 'lquote', 'rquote',
+		'align', 'columnalign', 'rowalign', 'columnlines', 'rowlines', 'columnspacing', 'rowspacing',
+		'columnspan', 'rowspan', 'frame', 'framespacing', 'equalrows', 'equalcolumns', 'actiontype', 'selection',
+	), true );
+
+	foreach ( array(
+		'math', 'semantics', 'annotation', 'annotation-xml', 'mrow', 'mi', 'mo', 'mn', 'ms', 'mtext',
+		'mspace', 'mglyph', 'mfrac', 'msqrt', 'mroot', 'mstyle', 'merror', 'mpadded', 'mphantom',
+		'menclose', 'msub', 'msup', 'msubsup', 'munder', 'mover', 'munderover', 'mmultiscripts',
+		'mprescripts', 'none', 'mtable', 'mtr', 'mtd', 'mlabeledtr', 'maction',
+	) as $element ) {
+		$tags[ $element ] = $attributes;
+	}
+
+	if ( isset( $tags['img'] ) ) {
+		$tags['img']['referrerpolicy'] = true;
+	}
+
+	return $tags;
+}
+
+add_filter( 'wp_kses_allowed_html', 'eqneditor_allow_mathml', 10, 2 );
