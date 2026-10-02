@@ -37,6 +37,8 @@ TinyMCE instance for `mce_external_plugins` to attach to):
   directions, equations render live, Insert adds the `<img>` at the cursor, and double-clicking
   an inserted equation reopens the dialog with its LaTeX decoded back out.
 
+*(Since 4.1 the plugin defaults to `fxeditor.codecogs.com`, which serves the current bundle, so the gap described next only applies if you point it back at `editor.codecogs.com`.)*
+
 **One thing this surfaced that's worth knowing:** `editor.codecogs.com` (this plugin's, and
 every other adapter's, default host) is currently serving an older `eqneditor.api.min.js`/
 `eqneditor.css` that predates `EqEditor.MathView` and the `CCEqnEditor`/`CCMathViewHost`/
