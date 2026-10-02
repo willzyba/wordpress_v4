@@ -246,6 +246,11 @@
 				box.style.transform = 'scale(' + size + ')';
 				box.style.transformOrigin = box.matches( '.ck-balloon-panel' ) ? 'top center'
 					: box.matches( '.tc-drop-down' ) ? 'top left' : 'center center';
+				// A cap on the box's width (CKEditor 5's balloon: 96vw) holds before the scale - divided by it,
+				// as for zoom below, or a scaled-down box is squeezed narrower than its own contents.
+				box.style.removeProperty( 'max-width' );   // a host that reuses the box (CKEditor 5) would otherwise divide it again
+				var cap = getComputedStyle( box ).maxWidth;
+				if ( cap !== 'none' ) box.style.setProperty( 'max-width', 'calc(' + cap + ' / ' + size + ')', 'important' );
 			} else {
 				box.style.zoom = String( size );
 				box.style.setProperty( 'max-width', 'calc(96vw / ' + size + ')', 'important' );   // still no wider than the window
