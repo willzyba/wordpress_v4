@@ -115,9 +115,9 @@
 				'src: local("Latin Modern Math"), url("' + fontUrl.replace( /prototypes\/latinmodern-math\.otf$/, 'fonts/LatinModernMath-Regular.woff2' ) + '") format("woff2"), url("' + fontUrl + '") format("opentype"); }' +
 			// Undo host resets (e.g. .cke_reset_all *) inside the toolbar icons and the maths view's MathML.
 			'.CCToolbar svg:has(g[font-family]), .CCToolbar svg:has(g[font-family]) * { font: revert-layer !important; }' +
-			// Older API builds draw the icons as plain <text>, fonted by the API's own .cc_panel rule instead.
+			// Icons drawn as <text>: the svg gets the API's own .cc_panel font (fxTeX Toolbar, 16px) back over host resets, and each <text> its own font-size attribute (revert-layer lets attributes win).
 			'.CCToolbar svg:not(:has(g[font-family])) { font: normal normal 16px "fxTeX Toolbar" !important; }' +
-			'.CCToolbar svg:not(:has(g[font-family])) * { font: inherit !important; }' +
+			'.CCToolbar svg:not(:has(g[font-family])) * { font: revert-layer !important; }' +
 			'.CCToolbar svg, .CCToolbar svg * { width: revert-layer !important; height: revert-layer !important; max-width: revert-layer !important; }' +
 			'.CCToolbar svg g[font-family="fxTeX Toolbar"] { color: #000 !important; }' +
 			'.CCMathView math, .CCMathView math * { font: revert-layer !important; ' +
@@ -202,6 +202,22 @@
 			var style = document.createElement( 'style' );
 			style.textContent = css;
 			root.appendChild( style );
+		}
+		// The whole dialog, box and contents together - see `dialogSize` in the README. Zoomed where
+		// the host lays the dialog out (it grows in place); scaled where the host positions it itself
+		// (CKEditor, TinyMCE 4, a TiddlyWiki drop-down), so that placement still holds.
+		var size = Number( design.dialogSize );
+		if ( size > 0 && size !== 1 ) {
+			var box = root.closest( '.tox-dialog, .mce-window, .cke_dialog, .ck-balloon-panel, .cc-eqneditor-modal, .tc-drop-down' ) || root;
+			var position = getComputedStyle( box ).position;
+			if ( position === 'absolute' || position === 'fixed' ) {
+				box.style.transform = 'scale(' + size + ')';
+				box.style.transformOrigin = box.matches( '.ck-balloon-panel' ) ? 'top center'
+					: box.matches( '.tc-drop-down' ) ? 'top left' : 'center center';
+			} else {
+				box.style.zoom = String( size );
+				box.style.setProperty( 'max-width', 'calc(96vw / ' + size + ')', 'important' );   // still no wider than the window
+			}
 		}
 		if ( insertSelect && design.insertAs && insertSelect.querySelector( 'option[value="' + design.insertAs + '"]' ) ) {
 			insertSelect.value = design.insertAs;
