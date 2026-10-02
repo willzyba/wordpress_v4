@@ -58,8 +58,8 @@ in a must-use plugin - see this exact pattern used for verification, removed bef
 
 ```php
 add_action( 'admin_head', function () {
-	echo '<script>window.eqneditorScriptUrl="http://localhost:8010/eqneditor.api.min.js";'
-		. 'window.eqneditorCssUrl="http://localhost:8010/eqneditor.css";'
+	echo '<script>window.eqneditorScriptUrl="http://localhost:8010/fxeditor.api.min.js";'
+		. 'window.eqneditorCssUrl="http://localhost:8010/fxeditor.css";'
 		. 'window.eqneditorMathmlCssUrl="http://localhost:8010/fxtex.css";</script>';
 } );
 ```

@@ -49,7 +49,7 @@
 
 	// EqEditor.init() switches the converter every TextArea/MathView/Toolbar construction takes
 	// on to fxTeX Pro - skip it and they keep the placeholder converter for their whole
-	// lifetime, even once eqneditor.api.min.js itself has loaded. Called once per page; an
+	// lifetime, even once fxeditor.api.min.js itself has loaded. Called once per page; an
 	// empty licence is the normal, expected state until a real one is configured.
 	var initPromise = null;
 
@@ -93,14 +93,14 @@
 		return !!src && /(gif|svg|png)\.image\?/.test( src );
 	}
 
-	// Fixes for gaps in the shared eqneditor.css (loaded separately, asynchronously, from the
+	// Fixes for gaps in the shared fxeditor.css (loaded separately, asynchronously, from the
 	// host configured below) this dialog needs but can't assume it will get: the old default host,
 	// editor.codecogs.com (still configurable), serves an older stylesheet that predates the CCEqnEditor/
 	// CCMathViewHost/CCLatexInput class names entirely (only a local dev mirror does not have
 	// this gap). TinyMCE 4's dialog body also does not itself give arbitrary nested content a
 	// height to lay out inside - without an explicit one on .CCEqnEditor, the maths view
 	// collapsed to a few pixels tall rather than filling the dialog. Injected once, since it
-	// would otherwise race eqneditor.css over which rule wins.
+	// would otherwise race fxeditor.css over which rule wins.
 	// The API's own injected @font-face for "Latin Modern Math" only carries
 	// local("Latin Modern Math") - no url() fallback - so it silently falls back to a generic
 	// serif unless that exact font happens to be installed. A later @font-face for the same
@@ -305,8 +305,8 @@
 		var renderUrl = window.eqneditorRenderUrl || DEFAULT_RENDER_URL;
 		var licence = window.eqneditorLicence || '';
 		var design = window.eqneditorDesign || {};
-		var scriptUrl = window.eqneditorScriptUrl || ( origin + '/eqneditor.api.min.js' );
-		var cssUrl = window.eqneditorCssUrl || ( origin + '/eqneditor.css' );
+		var scriptUrl = window.eqneditorScriptUrl || ( origin + '/fxeditor.api.min.js' );
+		var cssUrl = window.eqneditorCssUrl || ( origin + '/fxeditor.css' );
 		var mathmlCssUrl = window.eqneditorMathmlCssUrl || ( origin + '/fxtex.css' );
 
 		var apiReady = loadScriptOnce( scriptUrl );
