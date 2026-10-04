@@ -300,6 +300,26 @@
 		}
 	}
 
+	// Ready to type into, with its cursor showing: the MathView (or the LaTeX pane, when that is the
+	// one showing) takes focus as the dialog opens - otherwise focus stays on whatever opened it.
+	// The API draws the MathView's caret where the cursor is at that moment and only redraws it on an
+	// edit or on focus, but a dialog goes on settling after it opens (fonts arrive, the toolbar fits
+	// itself to its row) and moves the equation out from under it. Its focus handler only redraws
+	// (the cursor stays where it is), so it is fired again whenever the editing area changes size.
+	function focusEditor( root ) {
+		if ( !root ) return;
+		var pane = root.querySelector( root.getAttribute( 'data-latex' ) === 'on' ? '.CCLatexInput' : '.CCMathView' );
+		if ( pane ) pane.focus( { preventScroll: true } );
+		var view = root.querySelector( '.CCMathView' ), host = view && view.parentElement;
+		if ( host && !host.ccCaretWatch && typeof ResizeObserver !== 'undefined' ) {
+			host.ccCaretWatch = new ResizeObserver( function () {
+				var mv = host.querySelector( '.CCMathView' );
+				if ( mv && document.activeElement === mv ) mv.dispatchEvent( new FocusEvent( 'focus' ) );
+			} );
+			host.ccCaretWatch.observe( host );
+		}
+	}
+
 	function apiMathRules() {
 		var out = '';
 		for ( var i = 0; i < document.styleSheets.length; i++ ) {
@@ -523,6 +543,7 @@
 				// overflow:hidden rather than shown. reflow() re-measures against the DOM as it
 				// now actually is.
 				dialog.reflow();
+				focusEditor( document.getElementById( ids.root ) );
 			} ).catch( function ( err ) {
 				console.error( err );
 				dialog.close();
