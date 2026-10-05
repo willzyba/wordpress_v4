@@ -306,6 +306,155 @@
 	// edit or on focus, but a dialog goes on settling after it opens (fonts arrive, the toolbar fits
 	// itself to its row) and moves the equation out from under it. Its focus handler only redraws
 	// (the cursor stays where it is), so it is fired again whenever the editing area changes size.
+	// The predictor (design.predictor): whole equations that start the way this one does - the API's
+	// PredictorView - in a panel on the right of the editing area. The maths view and the markup pane
+	// share one row with it, so it sits beside whichever is showing. The bar between them drags to
+	// resize the panel, and its button (or Enter on the bar) folds it away; arrow keys resize it from
+	// the keyboard. The width and whether it is folded are remembered in this browser.
+	var PREDICTOR_WIDTH = 220, PREDICTOR_MIN = 140, PREDICTOR_KEY = 'cc-eqn-predictor';
+	function addPredictor( root, design, textArea, mathView ) {
+		if ( !root || !design || !design.predictor || typeof EqEditor === 'undefined' || !EqEditor.PredictorView ) return;
+		var host = root.querySelector( '.CCMathViewHost' ), markup = root.querySelector( '.CCLatexInput' );
+		var first = host || markup;
+		if ( !first || root.querySelector( '.cc-eqn-work' ) ) return;
+		injectPredictorStylesOnce();
+
+		var saved = {};
+		try { saved = JSON.parse( localStorage.getItem( PREDICTOR_KEY ) ) || {}; } catch ( e ) {}
+		var width = Number( saved.width ) >= PREDICTOR_MIN ? Number( saved.width ) : PREDICTOR_WIDTH;
+
+		var work = document.createElement( 'div' );
+		work.className = 'cc-eqn-work';
+		first.parentNode.insertBefore( work, first );
+		var panes = document.createElement( 'div' );
+		panes.className = 'cc-eqn-panes';
+		if ( host ) panes.appendChild( host );
+		if ( markup ) panes.appendChild( markup );
+
+		var bar = document.createElement( 'div' );
+		bar.className = 'cc-eqn-split';
+		bar.tabIndex = 0;
+		bar.setAttribute( 'role', 'separator' );
+		bar.setAttribute( 'aria-orientation', 'vertical' );
+		bar.setAttribute( 'aria-label', 'Resize the suggested equations' );
+		var fold = document.createElement( 'button' );
+		fold.type = 'button';
+		fold.className = 'cc-eqn-split-fold';
+		bar.appendChild( fold );
+
+		var side = document.createElement( 'aside' );
+		side.className = 'cc-eqn-predictor';
+		side.id = root.id + '-predictor';
+		side.setAttribute( 'aria-label', 'Suggested equations' );
+
+		work.appendChild( panes );
+		work.appendChild( bar );
+		work.appendChild( side );
+
+		function remember() {
+			try { localStorage.setItem( PREDICTOR_KEY, JSON.stringify( { width: width, folded: work.classList.contains( 'cc-eqn-folded' ) } ) ); } catch ( e ) {}
+		}
+		function setWidth( w ) {
+			// Never so wide that the editing area beside it has nothing left.
+			var room = work.clientWidth - bar.offsetWidth - 160;
+			width = Math.round( Math.max( PREDICTOR_MIN, room > PREDICTOR_MIN ? Math.min( w, room ) : w ) );
+			side.style.width = width + 'px';
+		}
+		function setFolded( folded ) {
+			work.classList.toggle( 'cc-eqn-folded', folded );
+			fold.textContent = folded ? '‹' : '›';
+			fold.title = folded ? 'Show suggested equations' : 'Hide suggested equations';
+			bar.setAttribute( 'aria-expanded', folded ? 'false' : 'true' );
+		}
+		side.style.width = width + 'px';
+		setFolded( !!saved.folded );
+
+		fold.addEventListener( 'click', function () { setFolded( !work.classList.contains( 'cc-eqn-folded' ) ); remember(); } );
+		bar.addEventListener( 'keydown', function ( e ) {
+			if ( e.target !== bar ) return;
+			if ( e.key === 'Enter' || e.key === ' ' ) {
+				e.preventDefault(); setFolded( !work.classList.contains( 'cc-eqn-folded' ) ); remember();
+			} else if ( ( e.key === 'ArrowLeft' || e.key === 'ArrowRight' ) && !work.classList.contains( 'cc-eqn-folded' ) ) {
+				e.preventDefault(); setWidth( width + ( e.key === 'ArrowLeft' ? 20 : -20 ) ); remember();
+			}
+		} );
+		// Dragged from anywhere on the bar but its button. Pointer movement is in screen pixels, which a
+		// scaled dialog (design.dialogSize) does not share with the panel's own width - hence the ratio.
+		bar.addEventListener( 'pointerdown', function ( e ) {
+			if ( e.target === fold || e.button !== 0 ) return;
+			e.preventDefault();
+			var scale = work.getBoundingClientRect().width / ( work.offsetWidth || 1 ) || 1;
+			var startX = e.clientX, startW = work.classList.contains( 'cc-eqn-folded' ) ? 0 : width;
+			if ( startW === 0 ) { setFolded( false ); startW = PREDICTOR_MIN; setWidth( startW ); }
+			bar.setPointerCapture( e.pointerId );
+			work.classList.add( 'cc-eqn-dragging' );
+			function move( ev ) { setWidth( startW + ( startX - ev.clientX ) / scale ); }
+			function up() {
+				bar.removeEventListener( 'pointermove', move );
+				bar.removeEventListener( 'pointerup', up );
+				bar.removeEventListener( 'pointercancel', up );
+				work.classList.remove( 'cc-eqn-dragging' );
+				remember();
+			}
+			bar.addEventListener( 'pointermove', move );
+			bar.addEventListener( 'pointerup', up );
+			bar.addEventListener( 'pointercancel', up );
+		} );
+
+		var show = design.predictorShow === 'latex' || design.predictorShow === 'both' ? design.predictorShow : 'mathml';
+		var view = EqEditor.PredictorView.link( side.id, { limit: 6, show: show } ).addTextArea( textArea );
+		if ( mathView ) view.addMathView( mathView );
+	}
+
+	// !important throughout: hosts reset their dialogs' contents (TinyMCE's .tox, CKEditor's
+	// .ck-reset_all) more specifically than a plain class rule reaches.
+	function injectPredictorStylesOnce() {
+		if ( document.getElementById( 'cc-eqn-predictor-css' ) ) return;
+		var style = document.createElement( 'style' );
+		style.id = 'cc-eqn-predictor-css';
+		style.textContent =
+			'.cc-eqn-work { display: flex !important; flex: 1 1 auto !important; min-height: 0 !important; min-width: 0 !important; align-items: stretch !important; }' +
+			'.cc-eqn-panes { display: flex !important; flex-direction: column !important; flex: 1 1 auto !important; min-width: 0 !important; min-height: 0 !important; }' +
+			'.cc-eqn-split { flex: 0 0 auto !important; width: 9px !important; margin: 0 2px !important; cursor: col-resize !important; ' +
+				'display: flex !important; align-items: center !important; justify-content: center !important; position: relative !important; ' +
+				'background: transparent !important; touch-action: none !important; user-select: none !important; outline: none !important; }' +
+			'.cc-eqn-split::before { content: "" !important; position: absolute !important; top: 0 !important; bottom: 0 !important; left: 4px !important; ' +
+				'width: 1px !important; background: #d5dbe3 !important; }' +
+			'.cc-eqn-split:hover::before, .cc-eqn-split:focus-visible::before, .cc-eqn-dragging .cc-eqn-split::before { left: 3px !important; width: 3px !important; background: var(--cc-accent, #003794) !important; }' +
+			'.cc-eqn-split-fold { flex: 0 0 auto !important; position: relative !important; z-index: 1 !important; width: 16px !important; height: 34px !important; margin: 0 !important; padding: 0 !important; ' +
+				'border: 1px solid #cbd5e0 !important; border-radius: 8px !important; background: #fff !important; color: #52606d !important; ' +
+				'font: 14px/1 sans-serif !important; cursor: pointer !important; box-shadow: none !important; display: flex !important; align-items: center !important; justify-content: center !important; }' +
+			'.cc-eqn-split-fold:hover { color: var(--cc-accent, #003794) !important; border-color: var(--cc-accent, #003794) !important; }' +
+			// contain: size - the list's length is no reason for the dialog to grow; the panel takes the
+			// editing area's height (stretched, as a flex item) and scrolls within it. layout, as the API
+			// has it, keeps its search box anchored to the panel.
+			'.cc-eqn-predictor { flex: 0 0 auto !important; min-width: 0 !important; min-height: 0 !important; overflow: auto !important; box-sizing: border-box !important; contain: size layout !important; }' +
+			'.cc-eqn-folded .cc-eqn-predictor { display: none !important; }' +
+			'.cc-eqn-dragging, .cc-eqn-dragging * { cursor: col-resize !important; user-select: none !important; }' +
+			// The suggestions' maths set as the maths view's is: a host's reset (TinyMCE's .tox
+			// :not(svg) { font-family: inherit; font-style: inherit }) outranks the API's .fxtex rules,
+			// which left it in the dialog's sans-serif with its letters upright (the browser italicises
+			// them through text-transform, which the reset takes too). Reverted to the browser's own
+			// maths styling, as the maths view is, then the API's .fxtex rules re-asserted for the panel.
+			'.cc-eqn-predictor math, .cc-eqn-predictor math * { font: revert-layer !important; text-transform: revert-layer !important; ' +
+				'width: revert-layer !important; height: revert-layer !important; padding: revert-layer !important; margin: revert-layer !important; ' +
+				'text-align: revert-layer !important; box-sizing: revert-layer !important; white-space: revert-layer !important; }';
+		for ( var i = 0; i < document.styleSheets.length; i++ ) {
+			var rules;
+			try { rules = document.styleSheets[ i ].cssRules; } catch ( e ) { continue; }
+			for ( var j = 0; j < rules.length; j++ ) {
+				var r = rules[ j ], decls = '';
+				var sel = r.selectorText && r.selectorText.replace( /:where\(\.fxEditor\)\s*/g, '' ).trim();
+				if ( !sel || !/^\.fxtex\b/.test( sel ) || sel.indexOf( ',' ) > -1 ) continue;
+				for ( var k = 0; k < r.style.length; k++ ) {
+					decls += r.style[ k ] + ':' + r.style.getPropertyValue( r.style[ k ] ) + ' !important;';
+				}
+				if ( decls ) style.textContent += '.cc-eqn-predictor ' + sel + '{' + decls + '}';
+			}
+		}
+		document.head.appendChild( style );
+	}
+
 	function focusEditor( root ) {
 		if ( !root ) return;
 		var pane = root.querySelector( root.getAttribute( 'data-latex' ) === 'on' ? '.CCLatexInput' : '.CCMathView' );
@@ -470,6 +619,7 @@
 				applyInline( e.target.checked );
 			} );
 
+			addPredictor( document.getElementById( ids.root ), design, eqTextArea, eqMathView );
 			applyDesign( document.getElementById( ids.root ), design, latexToggle, document.getElementById( ids.insertMode ) );
 		}
 
