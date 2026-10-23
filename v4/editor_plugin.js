@@ -188,7 +188,7 @@
 		output.imageSize().then( function ( size ) { apply( mark, size ); } );
 		return ' data-cc-size="' + mark + '"';
 	}
-	// An equation's own size, against a normal one (Output.setEquationSize()): normal is whatever
+	// An equation's own size, against a normal one (Output.setScale()): normal is whatever
 	// the site's .fxtex rule makes it, and this scales one equation on top. Chosen in the dialog's
 	// Size control when the design shows it (design.sizeControl); otherwise an equation being edited
 	// keeps the size it had.
@@ -212,8 +212,8 @@
 	// The size an equation on the page was inserted at - read once the API has loaded, which may
 	// be after the double-click that asked for it. 1 without one.
 	function sizeOf( el ) {
-		return el && window.EqEditor && EqEditor.Output && typeof EqEditor.Output.equationSizeOf === 'function'
-			? EqEditor.Output.equationSizeOf( el ) : 1;
+		return el && window.EqEditor && EqEditor.Output && ( EqEditor.Output.scaleOf || EqEditor.Output.equationSizeOf )
+			? ( EqEditor.Output.scaleOf || EqEditor.Output.equationSizeOf ).call( EqEditor.Output, el ) : 1;
 	}
 
 	var designCount = 0;
@@ -306,40 +306,262 @@
 	// edit or on focus, but a dialog goes on settling after it opens (fonts arrive, the toolbar fits
 	// itself to its row) and moves the equation out from under it. Its focus handler only redraws
 	// (the cursor stays where it is), so it is fired again whenever the editing area changes size.
-	// The predictor (design.predictor): whole equations that start the way this one does - the API's
-	// PredictorView - in a panel on the right of the editing area. The maths view and the markup pane
-	// share one row with it, so it sits beside whichever is showing. The bar between them drags to
-	// resize the panel, and its button (or Enter on the bar) folds it away; arrow keys resize it from
-	// the keyboard. The width and whether it is folded are remembered in this browser.
-	var PREDICTOR_WIDTH = 220, PREDICTOR_MIN = 140, PREDICTOR_KEY = 'cc-eqn-predictor';
-	function addPredictor( root, design, textArea, mathView ) {
-		if ( !root || !design || !design.predictor || typeof EqEditor === 'undefined' || !EqEditor.PredictorView ) return;
+	// The equation as an image URL ('url') or as MathML ('mathml'). fxeditor-api replaced Output.exportAs()
+	// with getEquationURL() and setFormat()/setWrapper()/getCode() (its 9630657); exportAs() still serves an
+	// API from before that. The format is set each time: the same Output gives both.
+	function outputCode( output, kind ) {
+		if ( typeof output.exportAs === 'function' ) return output.exportAs( kind );
+		if ( kind === 'mathml' ) return output.setFormat( 'mathml' ).setWrapper( 'html' ).getCode();
+		return output.setFormat( 'svg' ).getEquationURL();
+	}
+
+	// The editor's own controls, as the Google Docs sidebar has them: the toolbar's size (50-120%) at the
+	// right of the undo/redo bar; Inline, LaTeX and Predictor switches together - Inline added where a
+	// host has none, Predictor beside LaTeX; and LaTeX shown above the maths view rather than in its place
+	// (see stackPanes()). The size, Inline, LaTeX, Predictor and the markup's height are remembered here;
+	// the predictor starts as design.predictor says until the author has chosen. `parts` carries the
+	// editor's textArea, mathView and output, and the latexToggle and inlineToggle checkboxes.
+	var EDITOR_PREFS_KEY = 'cc-eqn-editor';
+	function addEditorControls( root, design, parts ) {
+		if ( !root || !parts ) return;
+		design = design || {};
+		injectPredictorStylesOnce();
+		var prefs = {};
+		try { prefs = JSON.parse( localStorage.getItem( EDITOR_PREFS_KEY ) ) || {}; } catch ( e ) {}
+		var save = function () {
+			try { localStorage.setItem( EDITOR_PREFS_KEY, JSON.stringify( prefs ) ); } catch ( e ) {}
+		};
+		var latexLabel = parts.latexToggle && parts.latexToggle.closest( 'label' );
+		// Another switch drawn exactly as the LaTeX one is - whatever markup and styling this host gives it.
+		var makeSwitch = function ( text, title ) {
+			var label = latexLabel.cloneNode( true );
+			var input = label.querySelector( 'input' );
+			input.removeAttribute( 'id' );
+			input.className = '';
+			for ( var i = input.attributes.length - 1; i >= 0; i-- ) {
+				if ( /^data-/.test( input.attributes[ i ].name ) ) input.removeAttribute( input.attributes[ i ].name );
+			}
+			input.checked = false;
+			input.disabled = false;
+			label.removeAttribute( 'for' );
+			label.title = title;
+			var name = label.querySelector( '.cc-switch-label' );
+			if ( name ) name.textContent = text;
+			return label;
+		};
+
+		// The toolbar's size. zoom scales it as it stands, so nothing is rebuilt: it keeps which pane it
+		// types into, and any panel that is open.
+		var toolbar = root.querySelector( '.CCToolbar' ), bar = root.querySelector( '.CCEditorBar' );
+		if ( toolbar && bar && design.toolbar !== false && !bar.querySelector( '.cc-toolbar-size' ) ) {
+			var size = document.createElement( 'label' );
+			size.className = 'cc-toolbar-size';
+			size.title = 'The toolbar’s size';
+			size.innerHTML = '<input type="range" min="50" max="120" step="5" aria-label="Toolbar size"><output></output>';
+			bar.appendChild( size );
+			var range = size.querySelector( 'input' ), shown = size.querySelector( 'output' );
+			var setSize = function ( pct ) {
+				pct = Math.min( 120, Math.max( 50, Math.round( Number( pct ) / 5 ) * 5 || 100 ) );
+				prefs.toolbarSize = pct;
+				toolbar.style.zoom = String( pct / 100 );
+				range.value = pct;
+				shown.textContent = pct + '%';
+			};
+			setSize( prefs.toolbarSize || 100 );
+			range.addEventListener( 'input', function () { setSize( range.value ); } );
+			range.addEventListener( 'change', save );
+		}
+
+		// Inline: the host's own switch, or one added before LaTeX where it has none.
+		var inline = parts.inlineToggle;
+		if ( !inline && latexLabel ) {
+			var inlineLabel = makeSwitch( 'Inline', 'An inline equation, set to sit in a line of text' );
+			latexLabel.parentNode.insertBefore( inlineLabel, latexLabel );
+			inline = inlineLabel.querySelector( 'input' );
+			inline.addEventListener( 'change', function () {
+				root.setAttribute( 'data-inline', inline.checked ? 'on' : 'off' );
+				if ( parts.mathView && parts.mathView.setInline ) parts.mathView.setInline( inline.checked );
+				if ( parts.output && parts.output.setInline ) parts.output.setInline( inline.checked );
+			} );
+		}
+		if ( inline ) {
+			if ( typeof prefs.inline === 'boolean' && inline.checked !== prefs.inline && !inline.disabled ) {
+				inline.checked = prefs.inline;
+				inline.dispatchEvent( new Event( 'change', { bubbles: true } ) );
+			}
+			inline.addEventListener( 'change', function () { prefs.inline = inline.checked; save(); } );
+		}
+
+		// LaTeX: remembered with the rest (a host that keeps its own record is overruled by this one).
+		var latex = parts.latexToggle;
+		if ( latex ) {
+			if ( typeof prefs.latex === 'boolean' && latex.checked !== prefs.latex && !latex.disabled ) {
+				latex.checked = prefs.latex;
+				latex.dispatchEvent( new Event( 'change', { bubbles: true } ) );
+			}
+			latex.addEventListener( 'change', function () { prefs.latex = latex.checked; save(); } );
+		}
+
+		stackPanes( root, prefs, save );
+
+		// The predictor, switched on and off beside LaTeX.
+		if ( latexLabel ) {
+			var predictorBox = null;
+			var predictor = addPredictor( root, design, parts.textArea, parts.mathView, function () {
+				predictorBox.checked = false;
+				prefs.predictor = false;
+				save();
+			} );
+			if ( predictor ) {
+				var predictorLabel = makeSwitch( 'Predictor', 'Suggested equations, as you write' );
+				latexLabel.parentNode.insertBefore( predictorLabel, latexLabel.nextSibling );
+				predictorBox = predictorLabel.querySelector( 'input' );
+				predictorBox.checked = typeof prefs.predictor === 'boolean' ? prefs.predictor : !!design.predictor;
+				predictor.setOn( predictorBox.checked );
+				predictorBox.addEventListener( 'change', function () {
+					predictor.setOn( predictorBox.checked );
+					prefs.predictor = predictorBox.checked;
+					save();
+				} );
+			}
+		}
+	}
+
+	// The LaTeX markup above the maths view while LaTeX is on, rather than in its place, with a bar
+	// between them that drags (or arrow-keys) the markup taller or shorter - its height remembered as
+	// prefs.latexHeight. Follows the editor root's data-latex, which every host's LaTeX switch sets, and
+	// overrides the host's own rule hiding the maths view meanwhile (inline and !important, as that is).
+	var LATEX_HEIGHT = 90, LATEX_MIN = 40;
+	function stackPanes( root, prefs, save ) {
 		var host = root.querySelector( '.CCMathViewHost' ), markup = root.querySelector( '.CCLatexInput' );
-		var first = host || markup;
-		if ( !first || root.querySelector( '.cc-eqn-work' ) ) return;
+		if ( !host || !markup || root.querySelector( '.cc-eqn-panes' ) ) return;
+		var panes = document.createElement( 'div' );
+		panes.className = 'cc-eqn-panes';
+		var first = ( markup.compareDocumentPosition( host ) & 4 ) ? markup : host;   // 4: host follows markup
+		first.parentNode.insertBefore( panes, first );
+		var grip = document.createElement( 'div' );
+		grip.className = 'cc-eqn-panes-split';
+		grip.tabIndex = 0;
+		grip.setAttribute( 'role', 'separator' );
+		grip.setAttribute( 'aria-orientation', 'horizontal' );
+		grip.setAttribute( 'aria-label', 'Resize the LaTeX markup' );
+		grip.title = 'Drag to share the space between the LaTeX and the equation';
+		panes.appendChild( markup );
+		panes.appendChild( grip );
+		panes.appendChild( host );
+
+		var height = Number( prefs.latexHeight ) >= LATEX_MIN ? Number( prefs.latexHeight ) : LATEX_HEIGHT;
+		var set = function ( el, prop, value ) { el.style.setProperty( prop, value, 'important' ); };
+		// A host that shows one pane at a time gives the editing area's height to whichever is showing:
+		// with both showing, that area is shared - the markup's height, then the bar, then the equation
+		// whatever is left. A host that shows both anyway sizes them itself; the markup's height is set.
+		var apply = function () {
+			var both = root.getAttribute( 'data-latex' ) === 'on';
+			panes.classList.toggle( 'cc-eqn-both', both );
+			[ 'height', 'min-height', 'flex', 'display' ].forEach( function ( p ) {
+				markup.style.removeProperty( p );
+				host.style.removeProperty( p );
+			} );
+			if ( !both ) return;
+			set( markup, 'min-height', '0' );
+			set( markup, 'flex', '0 0 auto' );
+			if ( getComputedStyle( host ).display !== 'none' ) {
+				set( markup, 'height', height + 'px' );
+				return;
+			}
+			var area = markup.offsetHeight;   // what the host gives the markup alone: the whole area
+			if ( !area ) return;			  // not laid out yet - the ResizeObserver below comes back
+			var bar = grip.offsetHeight + 2;
+			var h = Math.min( height, Math.max( LATEX_MIN, area - bar - 60 ) );
+			set( markup, 'height', h + 'px' );
+			set( host, 'display', 'flex' );
+			set( host, 'height', Math.max( 0, area - bar - h ) + 'px' );
+			set( host, 'min-height', '0' );
+			set( host, 'flex', '0 0 auto' );
+		};
+		var setHeight = function ( h ) {
+			height = Math.round( Math.max( LATEX_MIN, h ) );
+			apply();
+		};
+		apply();
+		new MutationObserver( apply ).observe( root, { attributes: true, attributeFilter: [ 'data-latex' ] } );
+		// The dialog lays out, or is resized, after this has run (TinyMCE 4's and WordPress's settle their
+		// sizes a moment later): share the area it then has. The editor's root, not the panes, is watched -
+		// the panes take the heights set here, so would not change to say so - and measured again as the
+		// dialog settles, as applyDesign() measures its height.
+		var again = function () { if ( panes.classList.contains( 'cc-eqn-both' ) ) apply(); };
+		if ( typeof ResizeObserver !== 'undefined' ) new ResizeObserver( again ).observe( root );
+		[ 150, 500, 1200 ].forEach( function ( t ) { setTimeout( again, t ); } );
+
+		grip.addEventListener( 'keydown', function ( e ) {
+			if ( e.key !== 'ArrowUp' && e.key !== 'ArrowDown' ) return;
+			e.preventDefault();
+			setHeight( height + ( e.key === 'ArrowDown' ? 20 : -20 ) );
+			prefs.latexHeight = height;
+			save();
+		} );
+		grip.addEventListener( 'pointerdown', function ( e ) {
+			if ( e.button !== 0 ) return;
+			e.preventDefault();
+			var scale = panes.getBoundingClientRect().height / ( panes.offsetHeight || 1 ) || 1;
+			var startY = e.clientY, startH = height;
+			grip.setPointerCapture( e.pointerId );
+			grip.classList.add( 'is-dragging' );
+			var move = function ( ev ) { setHeight( startH + ( ev.clientY - startY ) / scale ); };
+			var up = function () {
+				grip.removeEventListener( 'pointermove', move );
+				grip.removeEventListener( 'pointerup', up );
+				grip.removeEventListener( 'pointercancel', up );
+				grip.classList.remove( 'is-dragging' );
+				prefs.latexHeight = height;
+				save();
+			};
+			grip.addEventListener( 'pointermove', move );
+			grip.addEventListener( 'pointerup', up );
+			grip.addEventListener( 'pointercancel', up );
+		} );
+	}
+
+	// The predictor: whole equations that start the way this one does - the API's PredictorView - in a
+	// panel beside the editing area. The maths view and the markup pane share one row with it, so it sits
+	// beside whichever is showing - or, when that row is too narrow to share (a narrow dialog), below it.
+	// The bar between them drags to resize the panel (arrow keys too); its button, or Enter, switches the
+	// predictor off, as the Predictor switch does (`onOff`). Its width beside and its height below are
+	// remembered in this browser. Returns { setOn }, or null for an API without a PredictorView.
+	var PREDICTOR_WIDTH = 220, PREDICTOR_MIN = 140, PREDICTOR_HEIGHT = 170, PREDICTOR_MIN_HEIGHT = 90;
+	var PREDICTOR_STACK_BELOW = 480, PREDICTOR_KEY = 'cc-eqn-predictor';
+	function addPredictor( root, design, textArea, mathView, onOff ) {
+		if ( !root || typeof EqEditor === 'undefined' || !EqEditor.PredictorView ) return null;
+		var host = root.querySelector( '.CCMathViewHost' ), markup = root.querySelector( '.CCLatexInput' );
+		var panes = root.querySelector( '.cc-eqn-panes' );   // stackPanes()'s, where it has run
+		var first = panes || host || markup;
+		if ( !first || root.querySelector( '.cc-eqn-work' ) ) return null;
 		injectPredictorStylesOnce();
 
 		var saved = {};
 		try { saved = JSON.parse( localStorage.getItem( PREDICTOR_KEY ) ) || {}; } catch ( e ) {}
 		var width = Number( saved.width ) >= PREDICTOR_MIN ? Number( saved.width ) : PREDICTOR_WIDTH;
+		var height = Number( saved.height ) >= PREDICTOR_MIN_HEIGHT ? Number( saved.height ) : PREDICTOR_HEIGHT;
 
 		var work = document.createElement( 'div' );
-		work.className = 'cc-eqn-work';
+		work.className = 'cc-eqn-work cc-eqn-predictor-off';
 		first.parentNode.insertBefore( work, first );
-		var panes = document.createElement( 'div' );
-		panes.className = 'cc-eqn-panes';
-		if ( host ) panes.appendChild( host );
-		if ( markup ) panes.appendChild( markup );
+		if ( !panes ) {
+			panes = document.createElement( 'div' );
+			panes.className = 'cc-eqn-panes';
+			if ( markup ) panes.appendChild( markup );
+			if ( host ) panes.appendChild( host );
+		}
 
 		var bar = document.createElement( 'div' );
 		bar.className = 'cc-eqn-split';
 		bar.tabIndex = 0;
 		bar.setAttribute( 'role', 'separator' );
-		bar.setAttribute( 'aria-orientation', 'vertical' );
 		bar.setAttribute( 'aria-label', 'Resize the suggested equations' );
 		var fold = document.createElement( 'button' );
 		fold.type = 'button';
 		fold.className = 'cc-eqn-split-fold';
+		fold.title = 'Hide suggested equations';
 		bar.appendChild( fold );
 
 		var side = document.createElement( 'aside' );
@@ -351,8 +573,9 @@
 		work.appendChild( bar );
 		work.appendChild( side );
 
+		function stacked() { return work.classList.contains( 'cc-eqn-stacked' ); }
 		function remember() {
-			try { localStorage.setItem( PREDICTOR_KEY, JSON.stringify( { width: width, folded: work.classList.contains( 'cc-eqn-folded' ) } ) ); } catch ( e ) {}
+			try { localStorage.setItem( PREDICTOR_KEY, JSON.stringify( { width: width, height: height } ) ); } catch ( e ) {}
 		}
 		function setWidth( w ) {
 			// Never so wide that the editing area beside it has nothing left.
@@ -360,35 +583,57 @@
 			width = Math.round( Math.max( PREDICTOR_MIN, room > PREDICTOR_MIN ? Math.min( w, room ) : w ) );
 			side.style.width = width + 'px';
 		}
-		function setFolded( folded ) {
-			work.classList.toggle( 'cc-eqn-folded', folded );
-			fold.textContent = folded ? '‹' : '›';
-			fold.title = folded ? 'Show suggested equations' : 'Hide suggested equations';
-			bar.setAttribute( 'aria-expanded', folded ? 'false' : 'true' );
+		function setHeight( h ) {
+			height = Math.round( Math.min( 600, Math.max( PREDICTOR_MIN_HEIGHT, h ) ) );
+			side.style.height = height + 'px';
 		}
-		side.style.width = width + 'px';
-		setFolded( !!saved.folded );
+		// Beside the editing area, or below it once the row is too narrow for both: measured rather than
+		// decided per host, so a dialog made narrow gets the right one. The button points the way the
+		// panel goes to hide.
+		function layout() {
+			var below = work.clientWidth > 0 && work.clientWidth < PREDICTOR_STACK_BELOW;
+			work.classList.toggle( 'cc-eqn-stacked', below );
+			side.style.width = below ? '' : width + 'px';
+			side.style.height = below ? height + 'px' : '';
+			fold.textContent = below ? '▾' : '›';
+			bar.setAttribute( 'aria-orientation', below ? 'horizontal' : 'vertical' );
+		}
+		layout();
+		if ( typeof ResizeObserver !== 'undefined' ) new ResizeObserver( function () {
+			if ( stacked() !== ( work.clientWidth > 0 && work.clientWidth < PREDICTOR_STACK_BELOW ) ) layout();
+		} ).observe( work );
 
-		fold.addEventListener( 'click', function () { setFolded( !work.classList.contains( 'cc-eqn-folded' ) ); remember(); } );
+		function off() {
+			setOn( false );
+			if ( onOff ) onOff();
+		}
+		fold.addEventListener( 'click', off );
 		bar.addEventListener( 'keydown', function ( e ) {
 			if ( e.target !== bar ) return;
 			if ( e.key === 'Enter' || e.key === ' ' ) {
-				e.preventDefault(); setFolded( !work.classList.contains( 'cc-eqn-folded' ) ); remember();
-			} else if ( ( e.key === 'ArrowLeft' || e.key === 'ArrowRight' ) && !work.classList.contains( 'cc-eqn-folded' ) ) {
+				e.preventDefault(); off();
+			} else if ( !stacked() && ( e.key === 'ArrowLeft' || e.key === 'ArrowRight' ) ) {
 				e.preventDefault(); setWidth( width + ( e.key === 'ArrowLeft' ? 20 : -20 ) ); remember();
+			} else if ( stacked() && ( e.key === 'ArrowUp' || e.key === 'ArrowDown' ) ) {
+				e.preventDefault(); setHeight( height + ( e.key === 'ArrowUp' ? 20 : -20 ) ); remember();
 			}
 		} );
-		// Dragged from anywhere on the bar but its button. Pointer movement is in screen pixels, which a
-		// scaled dialog (design.dialogSize) does not share with the panel's own width - hence the ratio.
+		// Dragged from anywhere on the bar but its button: left and right beside the editing area, up
+		// and down below it. Pointer movement is in screen pixels, which a scaled dialog
+		// (design.dialogSize) does not share with the panel's own size - hence the ratio.
 		bar.addEventListener( 'pointerdown', function ( e ) {
 			if ( e.target === fold || e.button !== 0 ) return;
 			e.preventDefault();
+			var below = stacked();
 			var scale = work.getBoundingClientRect().width / ( work.offsetWidth || 1 ) || 1;
-			var startX = e.clientX, startW = work.classList.contains( 'cc-eqn-folded' ) ? 0 : width;
-			if ( startW === 0 ) { setFolded( false ); startW = PREDICTOR_MIN; setWidth( startW ); }
+			var start = below ? e.clientY : e.clientX;
+			var size = below ? height : width;
 			bar.setPointerCapture( e.pointerId );
 			work.classList.add( 'cc-eqn-dragging' );
-			function move( ev ) { setWidth( startW + ( startX - ev.clientX ) / scale ); }
+			function move( ev ) {
+				if ( below ) setHeight( size + ( start - ev.clientY ) / scale );
+				else setWidth( size + ( start - ev.clientX ) / scale );
+			}
 			function up() {
 				bar.removeEventListener( 'pointermove', move );
 				bar.removeEventListener( 'pointerup', up );
@@ -401,9 +646,20 @@
 			bar.addEventListener( 'pointercancel', up );
 		} );
 
-		var show = design.predictorShow === 'latex' || design.predictorShow === 'both' ? design.predictorShow : 'mathml';
-		var view = EqEditor.PredictorView.link( side.id, { limit: 6, show: show } ).addTextArea( textArea );
-		if ( mathView ) view.addMathView( mathView );
+		// Built the first time it is switched on, so nothing is asked of the suggestion service while
+		// the predictor is off.
+		var view = null;
+		function setOn( on ) {
+			work.classList.toggle( 'cc-eqn-predictor-off', !on );
+			if ( !on ) return;
+			layout();
+			if ( !view ) {
+				var show = design && ( design.predictorShow === 'latex' || design.predictorShow === 'both' ) ? design.predictorShow : 'mathml';
+				view = EqEditor.PredictorView.link( side.id, { limit: 6, show: show } ).addTextArea( textArea );
+				if ( mathView ) view.addMathView( mathView );
+			}
+		}
+		return { setOn: setOn };
 	}
 
 	// !important throughout: hosts reset their dialogs' contents (TinyMCE's .tox, CKEditor's
@@ -413,8 +669,24 @@
 		var style = document.createElement( 'style' );
 		style.id = 'cc-eqn-predictor-css';
 		style.textContent =
+			// The toolbar's size, at the right of the undo/redo bar - on one line with it however narrow.
+			'.CCEditorBar:has(.cc-toolbar-size), .CCEditorBar:has(.cc-toolbar-size) .CCHistory { flex-wrap: nowrap !important; }' +
+			'.cc-toolbar-size { display: inline-flex !important; align-items: center !important; gap: 4px !important; margin: 0 0 0 auto !important; ' +
+				'min-width: 0 !important; flex: 0 1 auto !important; font: 11px/1 sans-serif !important; color: #54647c !important; cursor: pointer !important; }' +
+			'.cc-toolbar-size input { width: 72px !important; min-width: 36px !important; flex: 0 1 72px !important; margin: 0 !important; padding: 0 !important; ' +
+				'accent-color: var(--cc-accent, #003794) !important; }' +
+			'.cc-toolbar-size output { min-width: 3em !important; text-align: right !important; }' +
+			// The bar between the LaTeX markup and the maths view, while both show (stackPanes()).
+			'.cc-eqn-panes-split { display: none !important; }' +
+			'.cc-eqn-both > .cc-eqn-panes-split { display: block !important; flex: 0 0 auto !important; height: 9px !important; margin: 1px 0 !important; ' +
+				'position: relative !important; cursor: row-resize !important; touch-action: none !important; outline: none !important; background: transparent !important; }' +
+			'.cc-eqn-both > .cc-eqn-panes-split::before { content: "" !important; position: absolute !important; top: 3px !important; left: 42% !important; right: 42% !important; ' +
+				'height: 3px !important; border-radius: 2px !important; background: #cbd5e0 !important; }' +
+			'.cc-eqn-both > .cc-eqn-panes-split:hover::before, .cc-eqn-both > .cc-eqn-panes-split:focus-visible::before, .cc-eqn-panes-split.is-dragging::before { ' +
+				'left: 0 !important; right: 0 !important; background: var(--cc-accent, #003794) !important; }' +
 			'.cc-eqn-work { display: flex !important; flex: 1 1 auto !important; min-height: 0 !important; min-width: 0 !important; align-items: stretch !important; }' +
 			'.cc-eqn-panes { display: flex !important; flex-direction: column !important; flex: 1 1 auto !important; min-width: 0 !important; min-height: 0 !important; }' +
+			'.cc-eqn-predictor-off .cc-eqn-split, .cc-eqn-predictor-off .cc-eqn-predictor { display: none !important; }' +
 			'.cc-eqn-split { flex: 0 0 auto !important; width: 9px !important; margin: 0 2px !important; cursor: col-resize !important; ' +
 				'display: flex !important; align-items: center !important; justify-content: center !important; position: relative !important; ' +
 				'background: transparent !important; touch-action: none !important; user-select: none !important; outline: none !important; }' +
@@ -429,8 +701,15 @@
 			// editing area's height (stretched, as a flex item) and scrolls within it. layout, as the API
 			// has it, keeps its search box anchored to the panel.
 			'.cc-eqn-predictor { flex: 0 0 auto !important; min-width: 0 !important; min-height: 0 !important; overflow: auto !important; box-sizing: border-box !important; contain: size layout !important; }' +
-			'.cc-eqn-folded .cc-eqn-predictor { display: none !important; }' +
 			'.cc-eqn-dragging, .cc-eqn-dragging * { cursor: col-resize !important; user-select: none !important; }' +
+			// Below the editing area (cc-eqn-stacked): the same parts turned through a right angle.
+			'.cc-eqn-stacked { flex-direction: column !important; }' +
+			'.cc-eqn-stacked .cc-eqn-split { width: auto !important; height: 9px !important; margin: 2px 0 !important; cursor: row-resize !important; }' +
+			'.cc-eqn-stacked .cc-eqn-split::before { top: 4px !important; bottom: auto !important; left: 0 !important; right: 0 !important; width: auto !important; height: 1px !important; }' +
+			'.cc-eqn-stacked .cc-eqn-split:hover::before, .cc-eqn-stacked .cc-eqn-split:focus-visible::before, .cc-eqn-stacked.cc-eqn-dragging .cc-eqn-split::before { top: 3px !important; left: 0 !important; width: auto !important; height: 3px !important; }' +
+			'.cc-eqn-stacked .cc-eqn-split-fold { width: 34px !important; height: 16px !important; }' +
+			'.cc-eqn-stacked .cc-eqn-predictor { width: auto !important; }' +
+			'.cc-eqn-stacked.cc-eqn-dragging, .cc-eqn-stacked.cc-eqn-dragging * { cursor: row-resize !important; }' +
 			// The suggestions' maths set as the maths view's is: a host's reset (TinyMCE's .tox
 			// :not(svg) { font-family: inherit; font-style: inherit }) outranks the API's .fxtex rules,
 			// which left it in the dialog's sans-serif with its letters upright (the browser italicises
@@ -563,7 +842,7 @@
 						'<label class="cc-switch" title="Show or hide the LaTeX markup">' +
 							'<input type="checkbox" id="' + ids.toggleLatex + '">' +
 							'<span class="cc-switch-track"><span class="cc-switch-knob"></span></span>' +
-							'<span class="cc-switch-label">LaTeX markup</span>' +
+							'<span class="cc-switch-label">LaTeX</span>' +
 						'</label>' +
 						'<div class="cc-eqn-bar-right">' +
 							( design.sizeControl
@@ -619,7 +898,8 @@
 				applyInline( e.target.checked );
 			} );
 
-			addPredictor( document.getElementById( ids.root ), design, eqTextArea, eqMathView );
+			addEditorControls( document.getElementById( ids.root ), design, { textArea: eqTextArea, mathView: eqMathView, output: eqOutput,
+				latexToggle: document.getElementById( ids.toggleLatex ), inlineToggle: document.getElementById( ids.toggleInline ) } );
 			applyDesign( document.getElementById( ids.root ), design, latexToggle, document.getElementById( ids.insertMode ) );
 		}
 
@@ -629,7 +909,7 @@
 				// Referrer-Policy: latex.codecogs.com identifies the calling site by referer,
 				// and a page with a stricter policy (or none at all, on some browsers'
 				// defaults) would otherwise send none at all.
-				return '<img class="fxtex" src="' + escapeHtml( eqOutput.exportAs( 'url' ) ) + '" ' +
+				return '<img class="fxtex" src="' + escapeHtml( outputCode( eqOutput, 'url' ) ) + '" ' +
 					'alt="' + escapeHtml( latex ) + '" referrerpolicy="origin"' + sizeImage( eqOutput, function ( mark, size ) {
 						var img = editor.dom.select( 'img[data-cc-size="' + mark + '"]' )[ 0 ];
 						if ( !img ) return;
@@ -637,7 +917,7 @@
 						editor.dom.setAttrib( img, 'data-cc-size', null );
 					} ) + '>';
 			}
-			return eqOutput.exportAs( 'mathml' );
+			return outputCode( eqOutput, 'mathml' );
 		}
 
 		// `el`, when editing: the equation on the page, whose size the dialog starts from.
@@ -660,9 +940,9 @@
 							var current = eqTextArea ? eqTextArea.getTextArea().textContent.trim() : '';
 							if ( current ) {
 								var mode = document.getElementById( ids.insertMode ).value;
-								if ( eqOutput.setEquationSize ) {
+								if ( eqOutput.setScale || eqOutput.setEquationSize ) {
 									var sizeSelect = document.getElementById( ids.size );
-									eqOutput.setEquationSize( sizeSelect ? Number( sizeSelect.value ) / 100 : startSize );
+									( eqOutput.setScale || eqOutput.setEquationSize ).call( eqOutput, sizeSelect ? Number( sizeSelect.value ) / 100 : startSize );
 								}
 								editor.execCommand( 'mceInsertContent', false, buildInsert( current, mode ) );
 								eqTextArea.pushToHistory();
