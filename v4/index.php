@@ -6,7 +6,12 @@ Description: Adds the CodeCogs equation editor to the WordPress Classic Editor's
 Author: CodeCogs
 Version: 4.1
 Author URI: https://www.codecogs.com/
+License: GPLv2 or later
+License URI: https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
 */
+
+// Copyright (c) 2026 CodeCogs, Zyba Ltd. Released under the GNU General Public License, version 2
+// or later - see LICENSE in the repository root.
 
 // This plugin's own JS (editor_plugin.js) registers a TinyMCE plugin/button - it only runs
 // inside TinyMCE, so it's only useful where a TinyMCE instance exists. That's the Classic

@@ -62,7 +62,7 @@ admin pages. The simplest place to set them is a small must-use plugin - a file 
 add_action( 'admin_head', function () {
     echo '<script>'
        . 'window.eqneditorServer  = "fxtex.codecogs.com";'
-       . 'window.eqneditorLicence = "your-licence-key";'     // from the licence manager - see below
+       . 'window.eqneditorLicence = "your-licence-key";'     // from fxeditor.codecogs.com/purchase - see below
        . 'window.eqneditorDesign  = { colour: "#0f7a4d" };'  // optional
        . '</script>';
 } );
@@ -92,12 +92,7 @@ licence key.
 Equations are rendered by fxTeX Pro, which needs a licence key for your domain. Without one,
 equations show the reason they cannot render in place of the maths.
 
-- Get a key at [fxeditor.codecogs.com/purchase](https://fxeditor.codecogs.com/purchase) - paid
-  plans, and a free trial.
-- Teachers and students can have a free individual licence:
-  [fxeditor.codecogs.com/academic](https://fxeditor.codecogs.com/academic).
-- Keys are managed in the [licence manager](https://fxeditor.codecogs.com/login): add the domains
-  your site runs on, and copy the key from there.
+Get your licence key from [fxeditor.codecogs.com/purchase](https://fxeditor.codecogs.com/purchase).
 
 The key goes in `window.eqneditorLicence`, set in the `admin_head` hook above. The full set of
 settings:
@@ -112,8 +107,12 @@ settings:
 
 ## Licence
 
-The plugin (`v4/`) declares the GNU General Public License, version 2 or later, in
-`v4/readme.txt`, as WordPress plugins do. Copyright CodeCogs.
+Copyright (c) 2026 CodeCogs, Zyba Ltd.
+
+The plugin (`v4/`) is released under the GNU General Public License, version 2 or later, as
+WordPress requires of its plugins - see
+[`LICENSE`](https://github.com/willzyba/wordpress_v4/blob/main/LICENSE). It is declared in
+`v4/readme.txt` too.
 
 fxEditor and fxTeX Pro are licensed by CodeCogs - see
 [fxeditor.codecogs.com](https://fxeditor.codecogs.com). WordPress and the TinyMCE it bundles are

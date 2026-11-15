@@ -6,6 +6,7 @@ Requires at least: 5.0
 Tested up to: 7.1
 Stable tag: 4.1
 License: GPLv2 or later
+License URI: https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
 
 Adds the CodeCogs WYSIWYG LaTeX equation editor to the WordPress Classic Editor's TinyMCE toolbar.
 
