@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/willzyba/wordpress_v4/main/screenshots/icon.png" alt="" width="96" align="right">
+
 # fxEditor for WordPress
 
 The fxEditor plugin for WordPress 5.0 and later (tested up to 7.1) adds an **fx** button to the
@@ -102,7 +104,7 @@ settings:
 | `eqneditorLicence` | Your fxEditor licence key. Required. |
 | `eqneditorDesign` | The editor's look: dialog width, height and scale, toolbar panels and size, colour, equation and markup sizes, undo/redo, how the dialog opens. Build one in [Customise and download](https://fxplugins.codecogs.com/docs/wordpress.html#customise). |
 | `eqneditorServer` | Host the equation editor is loaded from. Default `'fxtex.codecogs.com'`. |
-| `eqneditorRenderUrl` | The service that draws equations inserted as images. Default `'https://latex.codecogs.com'`, or your own fxTeX Server. |
+| `eqneditorRenderUrl` | The service that draws equations inserted as images. Default `'https://fxtex.codecogs.com'`, or your own fxTeX Server. |
 | `eqneditorScriptUrl`, `eqneditorCssUrl`, `eqneditorMathmlCssUrl` | Full URLs of the editor bundle and its stylesheets, when the defaults do not suit. |
 
 ## Licence

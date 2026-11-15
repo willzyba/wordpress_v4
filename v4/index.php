@@ -37,7 +37,7 @@ function eqneditor_register_tinymce_plugin() {
 add_action( 'init', 'eqneditor_register_tinymce_plugin' );
 
 // "Insert as MathML" puts <math> into the post, and the image insert sets referrerpolicy so
-// latex.codecogs.com can see which site is asking. Users without unfiltered_html (Authors,
+// the rendering service can see which site is asking. Users without unfiltered_html (Authors,
 // Contributors) have their content passed through kses on save, which drops any tag or
 // attribute it doesn't know - so both need adding to what it allows in post content.
 function eqneditor_allow_mathml( $tags, $context ) {

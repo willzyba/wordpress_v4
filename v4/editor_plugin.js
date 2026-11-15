@@ -15,7 +15,7 @@
 	'use strict';
 
 	var DEFAULT_HOST = 'fxtex.codecogs.com';
-	var DEFAULT_RENDER_URL = 'https://latex.codecogs.com';
+	var DEFAULT_RENDER_URL = 'https://fxtex.codecogs.com';
 
 	// One script/CSS load per URL no matter how many TinyMCE instances are on the page (e.g.
 	// quick-edit rows in the post list alongside the main editor).
@@ -906,7 +906,7 @@
 		function buildInsert( latex, mode ) {
 			if ( mode === 'svg' ) {
 				// referrerpolicy explicitly, rather than leaving it to the page's own
-				// Referrer-Policy: latex.codecogs.com identifies the calling site by referer,
+				// Referrer-Policy: the rendering service identifies the calling site by referer,
 				// and a page with a stricter policy (or none at all, on some browsers'
 				// defaults) would otherwise send none at all.
 				return '<img class="fxtex" src="' + escapeHtml( outputCode( eqOutput, 'url' ) ) + '" ' +
