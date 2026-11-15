@@ -63,7 +63,7 @@ admin pages. The simplest place to set them is a small must-use plugin - a file 
 // wp-content/mu-plugins/eqneditor-config.php
 add_action( 'admin_head', function () {
     echo '<script>'
-       . 'window.eqneditorServer  = "fxtex.codecogs.com";'
+       . 'window.eqneditorServer  = "https://fxtex.codecogs.com";'
        . 'window.eqneditorLicence = "your-licence-key";'     // from fxeditor.codecogs.com/purchase - see below
        . 'window.eqneditorDesign  = { colour: "#0f7a4d" };'  // optional
        . '</script>';
@@ -86,7 +86,7 @@ add_action( 'wp_enqueue_scripts', function () {
 
 `example.html` shows what the plugin adds to the Classic Editor without WordPress: TinyMCE 4.9.11,
 the version WordPress bundles, loaded from cdnjs, with `v4/editor_plugin.js` as an external
-plugin. Replace `{{EQN_SERVER}}` in it with `fxtex.codecogs.com` and `{{FXTEXPRO_KEY}}` with your
+plugin. Replace `{{EQN_SERVER}}` in it with `https://fxtex.codecogs.com` and `{{FXTEXPRO_KEY}}` with your
 licence key.
 
 ## Licence key
@@ -103,7 +103,7 @@ settings:
 |---|---|
 | `eqneditorLicence` | Your fxEditor licence key. Required. |
 | `eqneditorDesign` | The editor's look: dialog width, height and scale, toolbar panels and size, colour, equation and markup sizes, undo/redo, how the dialog opens. Build one in [Customise and download](https://fxplugins.codecogs.com/docs/wordpress.html#customise). |
-| `eqneditorServer` | Host the equation editor is loaded from. Default `'fxtex.codecogs.com'`. |
+| `eqneditorServer` | Where the equation editor is loaded from, as a URL. Default `'https://fxtex.codecogs.com'`. |
 | `eqneditorRenderUrl` | The service that draws equations inserted as images. Default `'https://fxtex.codecogs.com'`, or your own fxTeX Server. |
 | `eqneditorScriptUrl`, `eqneditorCssUrl`, `eqneditorMathmlCssUrl` | Full URLs of the editor bundle and its stylesheets, when the defaults do not suit. |
 

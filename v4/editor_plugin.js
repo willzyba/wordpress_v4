@@ -14,7 +14,7 @@
 ( function () {
 	'use strict';
 
-	var DEFAULT_HOST = 'fxtex.codecogs.com';
+	var DEFAULT_HOST = 'https://fxtex.codecogs.com';
 	var DEFAULT_RENDER_URL = 'https://fxtex.codecogs.com';
 
 	// One script/CSS load per URL no matter how many TinyMCE instances are on the page (e.g.
