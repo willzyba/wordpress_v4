@@ -47,6 +47,23 @@
 		return scriptPromises[ url ];
 	}
 
+	// fxtex.css styles inserted MathML. fxTeX Pro (which EqEditor.init() loads when the dialog
+	// first opens) puts the same rules on the page itself as <style id="fxtex-style">, unless
+	// an element with that id is already there - so this adds the file under that id, and only
+	// when nothing has claimed it yet. Only used when the content is part of the page itself
+	// (inline mode), where MathML already in the content needs styling before the dialog has
+	// ever been opened; the normal iframe content area gets it through editor.contentCSS.
+	function loadFxtexStyleOnce( url ) {
+		if ( document.getElementById( 'fxtex-style' ) || document.querySelector( 'link[href="' + url + '"]' ) ) {
+			return;
+		}
+		var link = document.createElement( 'link' );
+		link.id = 'fxtex-style';
+		link.rel = 'stylesheet';
+		link.href = url;
+		document.head.appendChild( link );
+	}
+
 	// EqEditor.init() switches the converter every TextArea/MathView/Toolbar construction takes
 	// on to fxTeX Pro - skip it and they keep the placeholder converter for their whole
 	// lifetime, even once fxeditor.api.min.js itself has loaded. Called once per page; an
@@ -800,7 +817,15 @@
 
 		var apiReady = loadScriptOnce( scriptUrl );
 		tinymce.DOM.loadCSS( cssUrl );
-		tinymce.DOM.loadCSS( mathmlCssUrl );
+		// The dialog lives on the outer page, where fxTeX Pro adds fxtex.css itself, so that
+		// page is not given a second copy. Inserted MathML is shown in the content iframe, a
+		// separate document fxTeX Pro's stylesheet never reaches: that is where this goes.
+		// contentCSS is read when the iframe is built, after plugins have run.
+		if ( editor.inline ) {
+			loadFxtexStyleOnce( mathmlCssUrl );
+		} else {
+			editor.contentCSS.push( mathmlCssUrl );
+		}
 
 		var eqOutput = null, eqTextArea = null, eqMathView = null, eqToolbar = null;
 

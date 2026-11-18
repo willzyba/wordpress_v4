@@ -105,7 +105,7 @@ settings:
 | `eqneditorDesign` | The editor's look: dialog width, height and scale, toolbar panels and size, colour, equation and markup sizes, undo/redo, how the dialog opens. Build one in [Customise and download](https://fxplugins.codecogs.com/docs/wordpress.html#customise). |
 | `eqneditorServer` | Where the equation editor is loaded from, as a URL. Default `'https://fxtex.codecogs.com'`. |
 | `eqneditorRenderUrl` | The service that draws equations inserted as images. Default `'https://fxtex.codecogs.com'`, or your own fxTeX Server. |
-| `eqneditorScriptUrl`, `eqneditorCssUrl`, `eqneditorMathmlCssUrl` | Full URLs of the editor bundle and its stylesheets, when the defaults do not suit. |
+| `eqneditorScriptUrl`, `eqneditorCssUrl`, `eqneditorMathmlCssUrl` | Full URLs of the editor bundle and its stylesheets, when the defaults do not suit. The MathML stylesheet goes into the editing area's iframe only; the admin page around it gets fxTeX Pro's own copy when the dialog opens. |
 
 ## Licence
 
