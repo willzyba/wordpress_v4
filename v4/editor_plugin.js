@@ -1026,9 +1026,18 @@
 		// wipes the rest of it. TinyMCE 4's editor.schema.addValidElements() has the same
 		// replace-not-merge behaviour for an element schema already knows, but every MathML
 		// element name here is new to the schema, so there is nothing to accidentally wipe).
-		editor.on( 'init', function () {
+		// PreInit, not init: by init TinyMCE has already parsed the starting content against the
+		// schema, so saved MathML came back as its bare text every time the content was loaded.
+		editor.on( 'PreInit', function () {
 			editor.schema.addValidElements(
 				MATHML_ELEMENTS.map( function ( name ) { return name + '[*]'; } ).join( ',' ) );
+
+			// TinyMCE does not count <math> as content, so a paragraph holding nothing but an
+			// equation - which is how a display equation is inserted - was judged empty and cleared
+			// when the content was serialised: the editor still showed the equation, but
+			// getContent(), and so whatever the page saved, had an empty paragraph in its place.
+			var nonEmpty = editor.schema.getNonEmptyElements();
+			nonEmpty.math = nonEmpty.MATH = {};
 
 			// img's default rule has no referrerpolicy, so the sanitiser strips it from every
 			// equation image. Mutated in place: addValidElements('img[...]') would replace the
