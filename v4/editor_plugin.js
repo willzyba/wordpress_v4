@@ -308,7 +308,8 @@
 				box.style.setProperty( 'max-width', 'calc(96vw / ' + size + ')', 'important' );   // still no wider than the window
 			}
 		}
-		if ( insertSelect && design.insertAs && insertSelect.querySelector( 'option[value="' + design.insertAs + '"]' ) ) {
+		// The design's choice, unless the author has made their own (addEditorControls()).
+		if ( insertSelect && design.insertAs && !insertSelect.hasAttribute( 'data-cc-remembered' ) && insertSelect.querySelector( 'option[value="' + design.insertAs + '"]' ) ) {
 			insertSelect.value = design.insertAs;
 		}
 		if ( latexToggle && design.latex && !latexToggle.checked && !latexToggle.disabled ) {
@@ -417,6 +418,16 @@
 				latex.dispatchEvent( new Event( 'change', { bubbles: true } ) );
 			}
 			latex.addEventListener( 'change', function () { prefs.latex = latex.checked; save(); } );
+		}
+
+		// Insert as: the author's last choice, over the design's.
+		var insertAs = parts.insertSelect;
+		if ( insertAs ) {
+			if ( prefs.insertAs && insertAs.querySelector( 'option[value="' + prefs.insertAs + '"]' ) ) {
+				insertAs.value = prefs.insertAs;
+				insertAs.setAttribute( 'data-cc-remembered', '' );
+			}
+			insertAs.addEventListener( 'change', function () { prefs.insertAs = insertAs.value; save(); } );
 		}
 
 		stackPanes( root, prefs, save );
@@ -924,7 +935,8 @@
 			} );
 
 			addEditorControls( document.getElementById( ids.root ), design, { textArea: eqTextArea, mathView: eqMathView, output: eqOutput,
-				latexToggle: document.getElementById( ids.toggleLatex ), inlineToggle: document.getElementById( ids.toggleInline ) } );
+				latexToggle: document.getElementById( ids.toggleLatex ), inlineToggle: document.getElementById( ids.toggleInline ),
+				insertSelect: document.getElementById( ids.insertMode ) } );
 			applyDesign( document.getElementById( ids.root ), design, latexToggle, document.getElementById( ids.insertMode ) );
 		}
 
@@ -945,8 +957,42 @@
 			return outputCode( eqOutput, 'mathml' );
 		}
 
-		// `el`, when editing: the equation on the page, whose size the dialog starts from.
-		function showDialog( latex, el ) {
+		// The whole equation an element on the page belongs to: for MathML, the wrapper the
+		// converter puts round the <math> (it carries the spoken text), else the <math> itself.
+		function equationOf( el ) {
+			if ( !el || el.nodeName.toLowerCase() !== 'math' ) return el;
+			var wrapper = el.parentNode;
+			return wrapper && wrapper.nodeName.toLowerCase() === 'span' && editor.dom.hasClass( wrapper, 'cc-math' ) ? wrapper : el;
+		}
+
+		// Puts the equation in at the caret, or in place of `el`, the equation being edited - all of it,
+		// as one undo step. Left to the caret, an edited MathML equation went inside the old <math>,
+		// where the double-click had put it, and TinyMCE dropped it, so the edit was lost; selecting
+		// the old equation instead is no help, as the insert narrows a selection to the text inside it.
+		// So the old one is taken out first, and the new one goes where it was.
+		function insertEquation( html, el ) {
+			var target = equationOf( el );
+			if ( !target || !editor.getBody().contains( target ) ) {
+				editor.execCommand( 'mceInsertContent', false, html );
+				return;
+			}
+			// Focused first: taking focus back from the dialog restores the caret TinyMCE saved.
+			editor.focus();
+			editor.undoManager.transact( function () {
+				var parent = target.parentNode, index = editor.dom.nodeIndex( target );
+				editor.dom.remove( target );
+				var rng = editor.dom.createRng();
+				rng.setStart( parent, index );
+				rng.collapse( true );
+				editor.selection.setRng( rng );
+				editor.execCommand( 'mceInsertContent', false, html );
+			} );
+		}
+
+		// `el`, when editing: the equation on the page, whose size the dialog starts from and which
+		// OK replaces. `format` ('svg' or 'mathml'): what it was inserted as, which the dialog starts
+		// with, so an edited equation goes back in the form it came out of.
+		function showDialog( latex, el, format ) {
 			latex = latex || '';
 			var startSize = 1;
 
@@ -969,7 +1015,7 @@
 									var sizeSelect = document.getElementById( ids.size );
 									( eqOutput.setScale || eqOutput.setEquationSize ).call( eqOutput, sizeSelect ? Number( sizeSelect.value ) / 100 : startSize );
 								}
-								editor.execCommand( 'mceInsertContent', false, buildInsert( current, mode ) );
+								insertEquation( buildInsert( current, mode ), el );
 								eqTextArea.pushToHistory();
 							}
 							dialog.close();
@@ -984,6 +1030,8 @@
 			apiReady.then( function () { return ensureInit( licence ); } ).then( function () {
 				injectStyleOverridesOnce( cssUrl.slice( 0, cssUrl.lastIndexOf( '/' ) + 1 ) + 'prototypes/latinmodern-math.otf' );
 				mount();
+				var insertMode = document.getElementById( ids.insertMode );
+				if ( format && insertMode.querySelector( 'option[value="' + format + '"]' ) ) insertMode.value = format;
 				startSize = sizeOf( el );
 				showSize( document.getElementById( ids.size ), startSize );
 				eqTextArea.clear();
@@ -1056,14 +1104,14 @@
 
 			if ( target.nodeName.toLowerCase() === 'img' && isEquationSrc( target.src ) ) {
 				var match = target.src.match( /(gif|svg|png)\.image\?(.*)/ );
-				if ( match ) showDialog( decodeEquation( match[ 2 ] ), target );
+				if ( match ) showDialog( decodeEquation( match[ 2 ] ), target, 'svg' );
 				return;
 			}
 
 			var mathEl = target.closest ? target.closest( 'math[title]' ) : null;
 			if ( mathEl ) {
 				var latex = mathEl.getAttribute( 'title' ).trim();
-				if ( latex ) showDialog( latex, mathEl );
+				if ( latex ) showDialog( latex, mathEl, 'mathml' );
 			}
 		} );
 	} );
