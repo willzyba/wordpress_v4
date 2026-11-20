@@ -6,7 +6,7 @@ The fxEditor plugin for WordPress 5.0 and later (tested up to 7.1) adds an **fx*
 Classic Editor's toolbar. It opens fxEditor, CodeCogs' equation editor, in a dialog: a toolbar of
 symbols and structures, a rendered maths view to build the equation in, and a LaTeX view that
 stays in step with it. The author chooses how the equation goes into the post - as MathML (the
-default) or as an SVG image - and double-clicking an inserted equation opens it for editing
+default), as an SVG image, or as LaTeX text (`$...$` inline, `$$...$$` on its own line) for [fxTeX](https://fxeditor.codecogs.com/docs/0-fxtex.php) to typeset on the page that shows it - and double-clicking an inserted equation opens it for editing
 again.
 
 The plugin lets MathML through WordPress's content filter, so Authors and Contributors can save

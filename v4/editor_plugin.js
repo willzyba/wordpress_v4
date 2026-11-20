@@ -68,12 +68,14 @@
 	// on to fxTeX Pro - skip it and they keep the placeholder converter for their whole
 	// lifetime, even once fxeditor.api.min.js itself has loaded. Called once per page; an
 	// empty licence is the normal, expected state until a real one is configured.
+	// fxTeX Pro's optional packages are off unless named here: without them \ce, \chemfig,
+	// \dv and the picture environment were unknown commands, shown as their letters.
 	var initPromise = null;
 
 	function ensureInit( licence ) {
 		if ( initPromise ) return initPromise;
 		initPromise = ( typeof EqEditor.init === 'function' )
-			? EqEditor.init( { licence: licence || '' } ).catch( function ( err ) {
+			? EqEditor.init( { licence: licence || '', packages: [ 'mhchem', 'chemfig', 'physics', 'picture' ] } ).catch( function ( err ) {
 				window.console && console.warn( 'fxTeX Pro: ' + ( err && err.message || err ) );
 			} )
 			: Promise.resolve();
@@ -90,6 +92,18 @@
 		'mtable', 'mtr', 'mtd', 'mlabeledtr', 'maction'
 	];
 
+	// The SVG fxTeX Pro draws chemical structures (chemfig) and pictures (the picture environment)
+	// with, inside the MathML, and the attributes it uses. Named one by one, unlike MathML's [*]:
+	// SVG has event attributes (onload and the rest) that a content filter must not let through.
+	var SVG_ELEMENTS = [ 'svg', 'g', 'path', 'line', 'polyline', 'polygon', 'rect', 'circle', 'ellipse',
+		'text', 'tspan', 'defs', 'use', 'title', 'desc' ];
+	var SVG_ATTRIBUTES = [ 'xmlns', 'xmlns:xlink', 'version', 'viewBox', 'preserveAspectRatio', 'width', 'height',
+		'x', 'y', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'rx', 'ry', 'dx', 'dy', 'd', 'points', 'transform',
+		'fill', 'fill-opacity', 'fill-rule', 'stroke', 'stroke-width', 'stroke-opacity', 'stroke-linecap',
+		'stroke-linejoin', 'stroke-miterlimit', 'stroke-dasharray', 'stroke-dashoffset', 'opacity',
+		'font-family', 'font-size', 'font-style', 'font-weight', 'text-anchor', 'dominant-baseline',
+		'href', 'xlink:href', 'id', 'class', 'style', 'role', 'aria-label', 'aria-hidden', 'focusable', 'overflow' ];
+
 	function decodeEquation( encoded ) {
 		var latex = encoded;
 		try {
@@ -98,6 +112,117 @@
 			// Not valid percent-encoding; still worth showing as it stands.
 		}
 		return latex.replace( /&space;/g, ' ' ).replace( /&plus;/g, '+' ).replace( /&hash;/g, '#' );
+	}
+
+	// Makes each MathML equation one object while it is in the editor: the browser cannot delete
+	// into a <math>, so Backspace and Delete beside one did nothing and the equation could not be
+	// removed at all. Marked contenteditable="false" (on the cc-math wrapper, else the <math>),
+	// TinyMCE selects it whole on a click and deletes it like an image. The mark is put on as
+	// content comes in and taken off as it goes out, so saved content never carries it.
+	function lockEquations( editor ) {
+		function outerOf( math ) {
+			var p = math.parent;
+			return p && p.name === 'span' && /(^|\s)cc-math(\s|$)/.test( p.attr( 'class' ) || '' ) ? p : math;
+		}
+		editor.parser.addNodeFilter( 'math', function ( nodes ) {
+			for ( var i = 0; i < nodes.length; i++ ) outerOf( nodes[ i ] ).attr( 'contenteditable', 'false' );
+		} );
+		editor.serializer.addNodeFilter( 'math', function ( nodes ) {
+			for ( var i = 0; i < nodes.length; i++ ) outerOf( nodes[ i ] ).attr( 'contenteditable', null );
+		} );
+	}
+
+	// "Insert as LaTeX": the equation as text fxTeX Pro typesets where the page is shown - $...$
+	// inline, $$...$$ on its own line - the delimiters fxTeX Pro looks for by default.
+	function texOf( latex, inline ) {
+		return inline ? '$' + latex + '$' : '$$' + latex + '$$';
+	}
+
+	// The $...$ or $$...$$ in `text` that `offset` is in or at the edge of, read as fxTeX Pro reads
+	// it: $$ opens a display equation and a single $ an inline one, each closed by the same, and
+	// \$ is a dollar sign, not a delimiter. Returns { start, end, latex, display }, or null.
+	function texAround( text, offset ) {
+		var i = 0;
+		while ( i < text.length ) {
+			var c = text.charAt( i );
+			if ( c === '\\' ) { i += 2; continue; }
+			if ( c !== '$' ) { i++; continue; }
+			var display = text.charAt( i + 1 ) === '$', size = display ? 2 : 1, j = i + size;
+			while ( j < text.length && !( text.charAt( j ) === '$' && ( !display || text.charAt( j + 1 ) === '$' ) ) ) {
+				j += text.charAt( j ) === '\\' ? 2 : 1;
+			}
+			if ( j >= text.length ) return null;
+			var end = j + size;
+			if ( offset >= i && offset <= end ) {
+				var latex = text.slice( i + size, j ).trim();
+				return latex ? { start: i, end: end, latex: latex, display: display } : null;
+			}
+			i = end;
+		}
+		return null;
+	}
+
+	// The LaTeX equation at a point in the page's text (a text node and an offset in it, as a
+	// selection gives), as texAround() describes, or null where there is none. Read across the
+	// run of text nodes the point is in, as an editor often leaves one line's text in several.
+	// Returns { tex: true, latex, display, text, start, end }, start and end being { node, offset }.
+	function texAt( node, offset ) {
+		if ( !node || node.nodeType !== 3 ) return null;
+		var first = node, runs = [], text = '', at = 0;
+		while ( first.previousSibling && first.previousSibling.nodeType === 3 ) first = first.previousSibling;
+		for ( var n = first; n && n.nodeType === 3; n = n.nextSibling ) {
+			if ( n === node ) at = text.length + offset;
+			runs.push( { node: n, from: text.length } );
+			text += n.data;
+		}
+		var found = texAround( text, at );
+		if ( !found ) return null;
+		// The node and offset `i` characters into the run - where a start or an end falls on the
+		// join between two nodes, in the one the equation is in.
+		var point = function ( i, isEnd ) {
+			for ( var k = runs.length - 1; k > 0; k-- ) {
+				if ( isEnd ? runs[ k ].from < i : runs[ k ].from <= i ) break;
+			}
+			return { node: runs[ k ].node, offset: i - runs[ k ].from };
+		};
+		return { tex: true, latex: found.latex, display: found.display, text: text.slice( found.start, found.end ),
+			start: point( found.start, false ), end: point( found.end, true ) };
+	}
+
+	// A DOM range over the LaTeX equation `tex` (from texAt()) if it is still in `body`,
+	// unchanged, where it was found - else null.
+	function texRange( tex, body ) {
+		if ( !tex || !body.contains( tex.start.node ) || !body.contains( tex.end.node ) ) return null;
+		var range = body.ownerDocument.createRange();
+		try {
+			range.setStart( tex.start.node, tex.start.offset );
+			range.setEnd( tex.end.node, tex.end.offset );
+		} catch ( e ) { return null; }
+		return range.toString() === tex.text ? range : null;
+	}
+
+	// An image equation's LaTeX, read back from its rendering URL, starts with the \inline the editor
+	// put there for an inline equation. Taken off, as the editor adds it again (left on, it showed in
+	// the editor and each edit added another), and given back as whether the equation is inline.
+	function splitInline( latex ) {
+		var found = /^\s*\\inline\b\s*/.exec( latex );
+		return { latex: found ? latex.slice( found[ 0 ].length ) : latex, inline: !!found };
+	}
+
+	// The Inline switch as the dialog opens: an edited LaTeX equation's own form ($ inline, $$
+	// not), otherwise what the author last chose. Set without a change event, so editing one
+	// equation does not change the remembered choice; `apply` shows the change in the dialog.
+	function startInline( toggle, inline, apply ) {
+		if ( !toggle || toggle.disabled ) return;
+		if ( typeof inline !== 'boolean' ) {
+			var prefs = {};
+			try { prefs = JSON.parse( localStorage.getItem( EDITOR_PREFS_KEY ) ) || {}; } catch ( e ) {}
+			inline = typeof prefs.inline === 'boolean' ? prefs.inline : toggle.defaultChecked;
+		}
+		if ( toggle.checked !== inline ) {
+			toggle.checked = inline;
+			apply( inline );
+		}
 	}
 
 	function escapeHtml( s ) {
@@ -800,6 +925,32 @@
 
 	var instanceCount = 0;
 
+	// SVG_ATTRIBUTES in lower case as well: TinyMCE compares names in lower case, so viewBox went.
+	function svgAttributeNames() {
+		return SVG_ATTRIBUTES.concat( SVG_ATTRIBUTES.map( function ( a ) { return a.toLowerCase(); } )
+			.filter( function ( a ) { return SVG_ATTRIBUTES.indexOf( a ) === -1; } ) );
+	}
+
+	// The schema's side of the same. An element the schema already has a rule for (TinyMCE 7 has
+	// one for svg) gets the attributes added to it, as addValidElements() would replace the rule.
+	function allowSvgElements( schema ) {
+		var names = svgAttributeNames();
+		SVG_ELEMENTS.forEach( function ( name ) {
+			// Without the namespaced names: the rule syntax reads xlink:href as an attribute xlink with
+			// a default value of href, which put xlink="href" on every element. Added to the rule below.
+			if ( !schema.getElementRule( name ) ) {
+				schema.addValidElements( name + '[' + names.filter( function ( a ) { return a.indexOf( ':' ) === -1; } ).join( '|' ) + ']' );
+			}
+			var rule = schema.getElementRule( name );
+			if ( !rule || !rule.attributes ) return;
+			names.forEach( function ( a ) {
+				if ( rule.attributes[ a ] ) return;
+				rule.attributes[ a ] = {};
+				if ( rule.attributesOrder ) rule.attributesOrder.push( a );
+			} );
+		} );
+	}
+
 	tinymce.PluginManager.add( 'eqneditor', function ( editor, url ) {
 		var n = ++instanceCount;
 		var ids = {
@@ -887,6 +1038,7 @@
 							'<select class="cc-eqn-select" id="' + ids.insertMode + '" title="How to insert the equation">' +
 								'<option value="mathml" selected>Insert MathML</option>' +
 								'<option value="svg">Insert SVG</option>' +
+								'<option value="latex">Insert LaTeX</option>' +
 							'</select>' +
 						'</div>' +
 					'</div>' +
@@ -941,6 +1093,7 @@
 		}
 
 		function buildInsert( latex, mode ) {
+			if ( mode === 'latex' ) return escapeHtml( texOf( latex, document.getElementById( ids.toggleInline ).checked ) );
 			if ( mode === 'svg' ) {
 				// referrerpolicy explicitly, rather than leaving it to the page's own
 				// Referrer-Policy: the rendering service identifies the calling site by referer,
@@ -971,6 +1124,19 @@
 		// the old equation instead is no help, as the insert narrows a selection to the text inside it.
 		// So the old one is taken out first, and the new one goes where it was.
 		function insertEquation( html, el ) {
+			// A LaTeX equation in the text (from texAt()): its $...$ is selected and typed over.
+			if ( el && el.tex ) {
+				var range = texRange( el, editor.getBody() );
+				if ( !range ) el = null;
+				else {
+					editor.focus();
+					editor.undoManager.transact( function () {
+						editor.selection.setRng( range );
+						editor.execCommand( 'mceInsertContent', false, html );
+					} );
+					return;
+				}
+			}
 			var target = equationOf( el );
 			if ( !target || !editor.getBody().contains( target ) ) {
 				editor.execCommand( 'mceInsertContent', false, html );
@@ -990,9 +1156,11 @@
 		}
 
 		// `el`, when editing: the equation on the page, whose size the dialog starts from and which
-		// OK replaces. `format` ('svg' or 'mathml'): what it was inserted as, which the dialog starts
-		// with, so an edited equation goes back in the form it came out of.
-		function showDialog( latex, el, format ) {
+		// OK replaces (for LaTeX, where it is in the text, from texAt()). `format` ('svg', 'mathml' or
+		// 'latex'): what it was inserted as, which the dialog starts with, so an edited equation goes
+		// back in the form it came out of. `inline`: whether it is an inline equation ($...$, for
+		// LaTeX), which the Inline switch starts at.
+		function showDialog( latex, el, format, inline ) {
 			latex = latex || '';
 			var startSize = 1;
 
@@ -1032,7 +1200,8 @@
 				mount();
 				var insertMode = document.getElementById( ids.insertMode );
 				if ( format && insertMode.querySelector( 'option[value="' + format + '"]' ) ) insertMode.value = format;
-				startSize = sizeOf( el );
+				startInline( document.getElementById( ids.toggleInline ), inline, applyInline );
+				startSize = sizeOf( el && el.nodeType ? el : null );
 				showSize( document.getElementById( ids.size ), startSize );
 				eqTextArea.clear();
 				if ( latex ) eqTextArea.insert( latex, latex.length );
@@ -1087,6 +1256,9 @@
 			var nonEmpty = editor.schema.getNonEmptyElements();
 			nonEmpty.math = nonEmpty.MATH = {};
 
+			allowSvgElements( editor.schema );
+			lockEquations( editor );
+
 			// img's default rule has no referrerpolicy, so the sanitiser strips it from every
 			// equation image. Mutated in place: addValidElements('img[...]') would replace the
 			// rule and drop src/alt from every image (see tinymce/v6/eqneditor.js).
@@ -1104,15 +1276,25 @@
 
 			if ( target.nodeName.toLowerCase() === 'img' && isEquationSrc( target.src ) ) {
 				var match = target.src.match( /(gif|svg|png)\.image\?(.*)/ );
-				if ( match ) showDialog( decodeEquation( match[ 2 ] ), target, 'svg' );
+				if ( match ) {
+					var eq = splitInline( decodeEquation( match[ 2 ] ) );
+					showDialog( eq.latex, target, 'svg', eq.inline );
+				}
 				return;
 			}
 
 			var mathEl = target.closest ? target.closest( 'math[title]' ) : null;
 			if ( mathEl ) {
 				var latex = mathEl.getAttribute( 'title' ).trim();
-				if ( latex ) showDialog( latex, mathEl, 'mathml' );
+				if ( latex ) showDialog( latex, mathEl, 'mathml', mathEl.getAttribute( 'display' ) !== 'block' );
+				return;
 			}
+
+			// LaTeX in the text, as "Insert as LaTeX" puts it: the double-click has selected a word
+			// of it, and the $...$ or $$...$$ round that is the equation.
+			var rng = editor.selection.getRng();
+			var tex = rng && texAt( rng.startContainer, rng.startOffset );
+			if ( tex ) showDialog( tex.latex, tex, 'latex', !tex.display );
 		} );
 	} );
 }() );
