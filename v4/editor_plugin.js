@@ -225,6 +225,143 @@
 		}
 	}
 
+	// A piece of text as runs of plain text and LaTeX equations, read as texAround() reads them:
+	// [{ text }, { text, tex: { latex, display } }, ...] - each run's text exactly as it is in the piece,
+	// delimiters and all, so joining the runs gives the piece back unchanged.
+	function texPieces( text ) {
+		var pieces = [], i = 0, from = 0;
+		while ( i < text.length ) {
+			var c = text.charAt( i );
+			if ( c === '\\' ) { i += 2; continue; }
+			if ( c !== '$' ) { i++; continue; }
+			var display = text.charAt( i + 1 ) === '$', size = display ? 2 : 1, j = i + size;
+			while ( j < text.length && !( text.charAt( j ) === '$' && ( !display || text.charAt( j + 1 ) === '$' ) ) ) {
+				j += text.charAt( j ) === '\\' ? 2 : 1;
+			}
+			if ( j >= text.length ) break;
+			var end = j + size, latex = text.slice( i + size, j ).trim();
+			if ( latex ) {
+				if ( i > from ) pieces.push( { text: text.slice( from, i ) } );
+				pieces.push( { text: text.slice( i, end ), tex: { latex: latex, display: display } } );
+				from = end;
+			}
+			i = end;
+		}
+		if ( from < text.length ) pieces.push( { text: text.slice( from ) } );
+		return pieces;
+	}
+
+	// The LaTeX equation in `source` (all of it, delimiters and all, as texPieces() gives it), or null.
+	function texOfSource( source ) {
+		var pieces = texPieces( source || '' );
+		return pieces.length === 1 && pieces[ 0 ].tex ? pieces[ 0 ].tex : null;
+	}
+
+	// LaTeX in the text - $...$ and $$...$$, as fxTeX reads them on the page that shows the content -
+	// shown as the maths it is while it is edited (design.latexAsMaths, on unless set false). What is
+	// saved is the LaTeX, exactly as it was: the stored content is the LaTeX, not MathML.
+	//
+	// As content comes in (the parser), each equation in the text becomes a locked span holding its
+	// text: <span class="cc-tex" data-cc-tex="$x$" contenteditable="false"><span class="cc-tex-src">$x$
+	// </span></span>. Its maths is drawn into it as a data-mce-bogus="all" element, which TinyMCE leaves
+	// out of saved content and undo history alike, and the text is hidden beside it. As content goes
+	// out (the serializer), each span is its data-cc-tex text again. Not in code, or anything already
+	// maths. Double-click one to edit it; Backspace deletes it whole.
+	var TEX_SKIP = { code: 1, pre: 1, script: 1, style: 1, textarea: 1, math: 1, svg: 1 };
+	var TEX_CSS = '.cc-tex { cursor: default; } .cc-tex-display { display: block; text-align: center; margin: 0.5em 0; }' +
+		' .cc-tex-math + .cc-tex-src { display: none; }';
+
+	function texAsMaths( editor, whenReady ) {
+		var AstNode = tinymce.html.Node;
+		function textNode( value ) {
+			var node = new AstNode( '#text', 3 );
+			node.value = value;
+			return node;
+		}
+		function skipped( node ) {
+			for ( var p = node.parent; p; p = p.parent ) {
+				if ( TEX_SKIP[ p.name ] ) return true;
+				if ( typeof p.attr === 'function' && p.attr( 'data-cc-tex' ) != null ) return true;
+			}
+			return false;
+		}
+
+		editor.on( 'PreInit', function () {
+			// data-cc-tex has to survive the schema for the serializer to find it again.
+			var spanRule = editor.schema.getElementRule( 'span' );
+			if ( spanRule && spanRule.attributes ) {
+				[ 'data-cc-tex', 'contenteditable', 'class' ].forEach( function ( name ) {
+					if ( !spanRule.attributes[ name ] ) {
+						spanRule.attributes[ name ] = {};
+						if ( spanRule.attributesOrder ) spanRule.attributesOrder.push( name );
+					}
+				} );
+			}
+
+			editor.parser.addNodeFilter( '#text', function ( nodes ) {
+				for ( var i = 0; i < nodes.length; i++ ) {
+					var node = nodes[ i ];
+					if ( !node.parent || !node.value || node.value.indexOf( '$' ) === -1 || skipped( node ) ) continue;
+					var pieces = texPieces( node.value );
+					if ( !pieces.some( function ( piece ) { return piece.tex; } ) ) continue;
+					pieces.forEach( function ( piece ) {
+						if ( !piece.tex ) {
+							node.parent.insert( textNode( piece.text ), node, true );
+							return;
+						}
+						var span = new AstNode( 'span', 1 );
+						span.attr( 'class', piece.tex.display ? 'cc-tex cc-tex-display' : 'cc-tex' );
+						span.attr( 'data-cc-tex', piece.text );
+						span.attr( 'contenteditable', 'false' );
+						var source = new AstNode( 'span', 1 );
+						source.attr( 'class', 'cc-tex-src' );
+						source.append( textNode( piece.text ) );
+						span.append( source );
+						node.parent.insert( span, node, true );
+					} );
+					node.remove();
+				}
+			} );
+
+			editor.serializer.addAttributeFilter( 'data-cc-tex', function ( nodes ) {
+				for ( var i = 0; i < nodes.length; i++ ) {
+					var value = nodes[ i ].attr( 'data-cc-tex' );
+					if ( value ) nodes[ i ].replace( textNode( value ) );
+				}
+			} );
+		} );
+
+		// The maths, drawn into each span that has none yet - once fxTeX Pro is ready.
+		function draw() {
+			if ( !editor.getBody() ) return;
+			var spans = editor.dom.select( 'span.cc-tex[data-cc-tex]' ).filter( function ( span ) {
+				return !span.querySelector( '.cc-tex-math' );
+			} );
+			if ( !spans.length ) return;
+			whenReady().then( function () {
+				spans.forEach( function ( span ) {
+					if ( !editor.getBody().contains( span ) || span.querySelector( '.cc-tex-math' ) ) return;
+					var tex = texOfSource( span.getAttribute( 'data-cc-tex' ) );
+					var mathml = '';
+					try { mathml = tex ? EqEditor.Output.latexToMathML( tex.latex, true, !tex.display ) : ''; } catch ( e ) { mathml = ''; }
+					// Without fxTeX Pro (no licence), its error: the LaTeX stays as it is.
+					if ( !mathml || mathml.indexOf( '<merror' ) !== -1 ) return;
+					var math = editor.getDoc().createElement( 'span' );
+					math.className = 'cc-tex-math';
+					math.setAttribute( 'data-mce-bogus', 'all' );
+					math.innerHTML = mathml;
+					span.insertBefore( math, span.firstChild );
+				} );
+			} );
+		}
+		editor.on( 'init', function () {
+			editor.dom.addStyle( TEX_CSS );
+			draw();
+		} );
+		editor.on( 'SetContent Undo Redo', function () { setTimeout( draw, 0 ); } );
+		return draw;
+	}
+
 	function escapeHtml( s ) {
 		return String( s )
 			.replace( /&/g, '&amp;' ).replace( /</g, '&lt;' )
@@ -978,6 +1115,9 @@
 		var mathmlCssUrl = window.eqneditorMathmlCssUrl || ( origin + '/fxtex.css' );
 
 		var apiReady = loadScriptOnce( scriptUrl );
+		var drawTex = ( design.latexAsMaths === false ) ? function () {} :
+			texAsMaths( editor, function () { return apiReady.then( function () { return ensureInit( licence ); } ); } );
+
 		tinymce.DOM.loadCSS( cssUrl );
 		// The dialog lives on the outer page, where fxTeX Pro adds fxtex.css itself, so that
 		// page is not given a second copy. Inserted MathML is shown in the content iframe, a
@@ -1273,6 +1413,14 @@
 		editor.on( 'DblClick', function ( e ) {
 			var target = e.target;
 			if ( !target ) return;
+
+			// LaTeX shown as maths: its own text says what it is.
+			var texSpan = target.closest && target.closest( 'span.cc-tex[data-cc-tex]' );
+			if ( texSpan ) {
+				var texFound = texOfSource( texSpan.getAttribute( 'data-cc-tex' ) );
+				if ( texFound ) showDialog( texFound.latex, texSpan, 'latex', !texFound.display );
+				return;
+			}
 
 			if ( target.nodeName.toLowerCase() === 'img' && isEquationSrc( target.src ) ) {
 				var match = target.src.match( /(gif|svg|png)\.image\?(.*)/ );

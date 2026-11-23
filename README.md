@@ -8,6 +8,7 @@ symbols and structures, a rendered maths view to build the equation in, and a La
 stays in step with it. The author chooses how the equation goes into the post - as MathML (the
 default), as an SVG image, or as LaTeX text (`$...$` inline, `$$...$$` on its own line) for [fxTeX](https://fxeditor.codecogs.com/docs/0-fxtex.php) to typeset on the page that shows it - and double-clicking an inserted equation opens it for editing
 again.
+LaTeX in the content shows as the maths it is while it is edited, and is saved as the LaTeX, character for character (`latexAsMaths: false` in the design turns this off).
 
 The plugin lets MathML through WordPress's content filter, so Authors and Contributors can save
 it too; without that, WordPress strips `<math>` from the posts of anyone who cannot post
