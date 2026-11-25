@@ -206,7 +206,10 @@
 	// the editor and each edit added another), and given back as whether the equation is inline.
 	function splitInline( latex ) {
 		var found = /^\s*\\inline\b\s*/.exec( latex );
-		return { latex: found ? latex.slice( found[ 0 ].length ) : latex, inline: !!found };
+		if ( found ) latex = latex.slice( found[ 0 ].length );
+		// A PNG's resolution (see outputCode()), which is not part of the equation.
+		latex = latex.replace( /^\s*\\dpi\{\d+\}\s*/, '' );
+		return { latex: latex, inline: !!found };
 	}
 
 	// The Inline switch as the dialog opens: an edited LaTeX equation's own form ($ inline, $$
@@ -405,7 +408,7 @@
 				'box-sizing: revert-layer !important; white-space: revert-layer !important; }' +
 			apiMathRules() +
 			// Its height is the panel's own (panelHtml(), from dialogHeight()): a fixed one here outgrew any
-			// dialog shorter than 500px - the 700x450 default among them - and cut off the bottom bar.
+			// dialog shorter than 500px - the 700x450 default design among them - and cut off the bottom bar.
 			'.CCEqnEditor { display: flex !important; flex-direction: column !important; }' +
 			'.CCEqnEditor .CCEditorBar { flex: 0 0 auto; }' +
 			// The toolbar as wide as the dialog, no wider: sized to its own content instead (width: auto)
@@ -454,8 +457,8 @@
 	// author. The toolbar's rows and scale go to Toolbar.link() itself; everything else is applied
 	// here, once the editor is mounted - CSS scoped to this editor's root, then the starting state of
 	// the LaTeX toggle and the "Insert as" menu.
-	// The dialog's size when the design does not set one: about 700 by 450 pixels.
-	var DEFAULT_WIDTH = 700, DEFAULT_HEIGHT = 450;
+	// The dialog's size when the design does not set one: about 700 by 500 pixels.
+	var DEFAULT_WIDTH = 700, DEFAULT_HEIGHT = 500;
 	function designWidth( design ) { return Number( design && design.width ) > 0 ? Number( design.width ) : DEFAULT_WIDTH; }
 	function designHeight( design ) { return Number( design && design.height ) > 0 ? Number( design.height ) : DEFAULT_HEIGHT; }
 	// Gives an inserted image its size in em once the API has read it (Output.imageSize()): set on
@@ -566,12 +569,21 @@
 	// edit or on focus, but a dialog goes on settling after it opens (fonts arrive, the toolbar fits
 	// itself to its row) and moves the equation out from under it. Its focus handler only redraws
 	// (the cursor stays where it is), so it is fired again whenever the editing area changes size.
-	// The equation as an image URL ('url') or as MathML ('mathml'). fxeditor-api replaced Output.exportAs()
-	// with getEquationURL() and setFormat()/setWrapper()/getCode() (its 9630657); exportAs() still serves an
-	// API from before that. The format is set each time: the same Output gives both.
+	// The equation as an image URL - SVG ('url') or PNG ('png') - or as MathML ('mathml'). fxeditor-api replaced
+	// Output.exportAs() with getEquationURL() and setFormat()/setWrapper()/getCode() (its 9630657); exportAs() still
+	// serves an API from before that. The format is set each time: the same Output gives all three. A PNG is
+	// drawn at PNG_DPI for a normal size (96 dpi is the SVG's own size), so it stays sharp once it is given the
+	// SVG's size; the Output is left at SVG, which Output.imageSize() reads.
+	var PNG_DPI = 192;
 	function outputCode( output, kind ) {
-		if ( typeof output.exportAs === 'function' ) return output.exportAs( kind );
+		if ( typeof output.exportAs === 'function' && kind !== 'png' ) return output.exportAs( kind );
 		if ( kind === 'mathml' ) return output.setFormat( 'mathml' ).setWrapper( 'html' ).getCode();
+		if ( kind === 'png' && typeof output.setDpi === 'function' ) {
+			var scale = typeof output.getScale === 'function' ? output.getScale() : 1;
+			var url = output.setFormat( 'png' ).setDpi( Math.round( PNG_DPI * scale ) ).getEquationURL();
+			output.setFormat( 'svg' );
+			return url;
+		}
 		return output.setFormat( 'svg' ).getEquationURL();
 	}
 
@@ -700,7 +712,7 @@
 	}
 
 	// The equation's size against a normal one (Output.setScale()), in %: a slider just before Insert as,
-	// as the Google sidebar has, with the size on its right. It shows while Insert as is an image (SVG or
+	// with the size on its right and what it is in its tooltip. It shows while Insert as is an image (SVG or
 	// PNG), which the scale sizes in em (Output.imageSize()), and for MathML too where the design asks for
 	// it (design.sizeControl) and the host can scale MathML; never for LaTeX, which has no size of its own.
 	// The size is remembered as prefs.size, and an equation being edited starts at its own size.
@@ -710,8 +722,8 @@
 		if ( !insertAs || !insertAs.parentNode || insertAs.parentNode.querySelector( '.cc-eqn-size' ) ) return;
 		var label = document.createElement( 'label' );
 		label.className = 'cc-eqn-size';
-		label.title = 'The equation\u2019s size, against a normal one';
-		label.innerHTML = '<span>Size</span><input type="range" min="' + SIZE_MIN + '" max="' + SIZE_MAX + '" step="' + SIZE_STEP + '">' +
+		label.title = 'The equation\u2019s size in the document, against a normal one (100%)';
+		label.innerHTML = '<input type="range" min="' + SIZE_MIN + '" max="' + SIZE_MAX + '" step="' + SIZE_STEP + '" aria-label="Equation size">' +
 			'<output></output>';
 		insertAs.parentNode.insertBefore( label, insertAs );
 		var range = label.querySelector( 'input' ), shown = label.querySelector( 'output' );
@@ -746,12 +758,18 @@
 		return label && label.ccSize || null;
 	}
 	// The scale an image on the page was inserted at, against its natural size: from its width - a style
-	// in em (the image server's 16px to the em) or px, or a width attribute - so it must have loaded.
-	// 0 if unknown.
+	// in em (the image server's 16px to the em) or px, or a width attribute - so it must have loaded. A
+	// PNG's natural size is its \dpi's (the server's 300 without one) against the SVG's 96. 0 if unknown.
 	function imageScaleOf( img ) {
 		if ( !img || !img.nodeName || img.nodeName.toLowerCase() !== 'img' || !img.naturalWidth ) return 0;
 		var width = /^([\d.]+)(px|em)$/.exec( img.style.width || '' ) || /^([\d.]+)()$/.exec( img.getAttribute( 'width' ) || '' );
-		return width ? parseFloat( width[ 1 ] ) * ( width[ 2 ] === 'em' ? 16 : 1 ) / img.naturalWidth : 0;
+		if ( !width ) return 0;
+		var src = img.getAttribute( 'src' ) || '', dpi = 96;
+		if ( /png\.image\?/.test( src ) ) {
+			try { src = decodeURIComponent( src ); } catch ( e ) {}
+			dpi = Number( ( /\\dpi\{(\d+)\}/.exec( src ) || [ 0, 300 ] )[ 1 ] );
+		}
+		return parseFloat( width[ 1 ] ) * ( width[ 2 ] === 'em' ? 16 : 1 ) * dpi / 96 / img.naturalWidth;
 	}
 
 	// The LaTeX markup above the maths view while LaTeX is on, rather than in its place, with a bar
@@ -1006,7 +1024,7 @@
 			// The equation's size, beside Insert as (addSizeSlider()).
 			'.cc-eqn-size { display: inline-flex !important; align-items: center !important; gap: 6px !important; margin: 0 !important; padding: 0 !important; ' +
 				'font: inherit !important; color: #54647c !important; cursor: pointer !important; white-space: nowrap !important; user-select: none !important; }' +
-			'.cc-eqn-size span, .cc-eqn-size output { font: inherit !important; color: inherit !important; }' +
+			'.cc-eqn-size output { font: inherit !important; color: inherit !important; }' +
 			'.cc-eqn-size input { width: 96px !important; min-width: 48px !important; flex: 0 1 96px !important; height: auto !important; margin: 0 !important; ' +
 				'padding: 0 !important; border: 0 !important; background: none !important; accent-color: var(--cc-accent, #003794) !important; cursor: pointer !important; }' +
 			'.cc-eqn-size output { min-width: 2.8em !important; text-align: right !important; }' +
@@ -1216,9 +1234,10 @@
 						'</label>' +
 						'<div class="cc-eqn-bar-right">' +
 							'<select class="cc-eqn-select" id="' + ids.insertMode + '" title="How to insert the equation">' +
-								'<option value="mathml" selected>Insert MathML</option>' +
-								'<option value="svg">Insert SVG</option>' +
-								'<option value="latex">Insert LaTeX</option>' +
+								'<option value="mathml" selected>MathML</option>' +
+								'<option value="svg">SVG</option>' +
+								'<option value="png">PNG</option>' +
+								'<option value="latex">LaTeX</option>' +
 							'</select>' +
 						'</div>' +
 					'</div>' +
@@ -1274,12 +1293,12 @@
 
 		function buildInsert( latex, mode ) {
 			if ( mode === 'latex' ) return escapeHtml( texOf( latex, document.getElementById( ids.toggleInline ).checked ) );
-			if ( mode === 'svg' ) {
+			if ( isImageFormat( mode ) ) {
 				// referrerpolicy explicitly, rather than leaving it to the page's own
 				// Referrer-Policy: the rendering service identifies the calling site by referer,
 				// and a page with a stricter policy (or none at all, on some browsers'
 				// defaults) would otherwise send none at all.
-				return '<img class="fxtex" src="' + escapeHtml( outputCode( eqOutput, 'url' ) ) + '" ' +
+				return '<img class="fxtex" src="' + escapeHtml( outputCode( eqOutput, mode === 'png' ? 'png' : 'url' ) ) + '" ' +
 					'alt="' + escapeHtml( latex ) + '" referrerpolicy="origin"' + sizeImage( eqOutput, function ( mark, size ) {
 						var img = editor.dom.select( 'img[data-cc-size="' + mark + '"]' )[ 0 ];
 						if ( !img ) return;
@@ -1347,7 +1366,7 @@
 			var dialog = editor.windowManager.open( {
 				title: 'Equation Editor',
 				width: designWidth( design ),
-				// The 460px panel plus the dialog body's own 20px padding above and below.
+				// The panel (dialogHeight() - 40) plus the dialog body's own 20px padding above and below.
 				height: dialogHeight(),
 				body: [ { type: 'container', html: panelHtml() } ],
 				buttons: [
@@ -1469,7 +1488,7 @@
 				var match = target.src.match( /(gif|svg|png)\.image\?(.*)/ );
 				if ( match ) {
 					var eq = splitInline( decodeEquation( match[ 2 ] ) );
-					showDialog( eq.latex, target, 'svg', eq.inline );
+					showDialog( eq.latex, target, match[ 1 ] === 'png' ? 'png' : 'svg', eq.inline );
 				}
 				return;
 			}
