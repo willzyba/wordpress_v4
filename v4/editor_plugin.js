@@ -404,8 +404,9 @@
 				'margin: revert-layer !important; text-transform: revert-layer !important; text-align: revert-layer !important; ' +
 				'box-sizing: revert-layer !important; white-space: revert-layer !important; }' +
 			apiMathRules() +
-			'.CCEqnEditor { display: flex !important; flex-direction: column !important; ' +
-				'height: 460px !important; }' +
+			// Its height is the panel's own (panelHtml(), from dialogHeight()): a fixed one here outgrew any
+			// dialog shorter than 500px - the 700x450 default among them - and cut off the bottom bar.
+			'.CCEqnEditor { display: flex !important; flex-direction: column !important; }' +
 			'.CCEqnEditor .CCEditorBar { flex: 0 0 auto; }' +
 			// The toolbar as wide as the dialog, no wider: sized to its own content instead (width: auto)
 			// it kept the toolbar's whole row and ran past a narrow dialog (`design.width`); at 100% the
@@ -1223,7 +1224,7 @@
 			// overflow:hidden.
 			return '' +
 				'<div id="' + ids.root + '" class="CCEqnEditor" data-latex="off" data-inline="off" ' +
-					'style="display:flex;flex-direction:column;height:' + ( dialogHeight() - 40 ) + 'px">' +
+					'style="display:flex;flex-direction:column;height:' + ( dialogHeight() - 40 ) + 'px !important">' +
 					'<div class="CCEditorBar"><div id="' + ids.history + '" class="CCHistory"></div></div>' +
 					'<div id="' + ids.toolbar + '"></div>' +
 					'<div id="' + ids.mathview + '" class="CCMathViewHost"></div>' +
